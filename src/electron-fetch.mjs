@@ -2,7 +2,7 @@
  * On-demand Electron runtime fetch for the dsh-pet-remielle desktop window.
  *
  * The floating desktop window needs a real Electron binary (~221MB, which is
- * why it is NOT bundled into the Git repo — see README "桌面模式运行时"). This
+ * why it is NOT bundled into the Git repo — see README "desktop mode runtime"). This
  * module lets the host fetch it automatically the first time desktop mode is
  * used, instead of making the user hunt down a large zip by hand.
  *
@@ -10,15 +10,17 @@
  * is resolved from the current platform/arch, so the same code works on
  * Windows, Linux and macOS.
  *
- * 两套解析/解压逻辑并存（合并自两个外部 PR）：
- *  - pr-17 (wjj-8283): runtimeTarget()/electronBinaryIn() + 直接解压进 vendorDir，
- *    能正确处理 macOS 的 Electron.app 符号链接（copyFile 在 .app 上会 ENOTSUP）。
- *  - pr-16 (OwNhj): electronArtifact() + findDistDir()/moveContents()，在
- *    win32/linux 上实测可用（真机冒烟通过）。
- *  - 最终策略：darwin 走 pr-17 的直解压；win32/linux 走 pr-16 的 moveContents
- *    （两 PR 在这俩平台落盘路径完全一致，pr-16 有实测背书）。
+ * Two resolve/extract implementations coexist (merged from two external PRs):
+ *  - pr-17 (wjj-8283): runtimeTarget()/electronBinaryIn() + extracting directly into vendorDir,
+ *    which handles macOS Electron.app symlinks correctly (copyFile fails with ENOTSUP on a
+ *    .app).
+ *  - pr-16 (OwNhj): electronArtifact() + findDistDir()/moveContents(), verified working on
+ *    win32/linux in practice (real-machine smoke test passed).
+ *  - Final policy: darwin uses pr-17's direct extraction; win32/linux uses pr-16's moveContents
+ *    (both PRs produce exactly the same on-disk path on these two platforms, and pr-16 has
+ *    practical verification behind it).
  *
- * Behaviour policy ("用户不一定能访问外网"):
+ * Behaviour policy ("the user may not have access to the public internet"):
  *  - Tries the npmmirror binary mirror first (fast for CN users), then the
  *    official GitHub release. If every source fails it rejects and the caller
  *    falls back to the in-page pet — never crashes the plugin.
@@ -90,12 +92,14 @@ export function electronBinaryIn(dir, platform = process.platform, arch = proces
 }
 
 /**
- * ASAR 安全的 fs（issue #24）：Electron 宿主会把 node:fs 打上 ASAR 补丁——
- * 读取「已存在的 .asar 文件本身」会被当成虚拟归档解析，复制/校验
- * resources/default_app.asar 时报 ENOENT "not found in <实际存在的文件>"。
- * （写不存在的 .asar 路径会落成真实文件，所以解压正常、copyFile 出事。）
- * Electron 官方做法是用 original-fs 把归档当普通文件操作；非 Electron 宿主
- * 里没有 original-fs，退回 node:fs。测试注入的假 fs 走不到这里的问题。
+ * ASAR-safe fs (issue #24): the Electron host patches node:fs for ASAR — reading
+ * "an existing .asar file itself" gets parsed as a virtual archive, and copying/verifying
+ * resources/default_app.asar then fails with ENOENT "not found in <a file that actually
+ * exists>". (Writing a non-existent .asar path lands as a real file, so extraction works while
+ * copyFile breaks.)
+ * The official Electron approach is to use original-fs to treat archives as plain files;
+ * outside an Electron host there is no original-fs, so fall back to node:fs. A fake fs injected
+ * by tests never reaches this problem.
  */
 let asarSafeFsCache
 function asarSafeFs() {
@@ -104,16 +108,17 @@ function asarSafeFs() {
     try {
       asarSafeFsCache = createRequire(import.meta.url)('original-fs')
       return asarSafeFsCache
-    } catch { /* 无 original-fs 时退回 node:fs */ }
+    } catch { /* fall back to node:fs when there is no original-fs */ }
   }
   asarSafeFsCache = fsNode
   return asarSafeFsCache
 }
 
 /**
- * 运行时关键文件清单（相对运行时根目录，issue #24）。只检查可执行文件会把
- * exe-only 残留误判为已安装——逐文件复制中断后 electron.exe 已就位而
- * resources/default_app.asar 等缺失，插件会永远尝试启动残缺运行时。
+ * The list of runtime-critical files (relative to the runtime root, issue #24). Checking only
+ * the executable would misjudge an exe-only residue as installed — after a per-file copy was
+ * interrupted electron.exe is in place while resources/default_app.asar and friends are
+ * missing, and the plugin would forever try to launch an incomplete runtime.
  */
 export function requiredRuntimeFiles(platform = process.platform) {
   if (platform === 'darwin') {
@@ -137,9 +142,11 @@ export function requiredRuntimeFiles(platform = process.platform) {
  * regular file. Must use the ASAR-safe fs: under an Electron host the patched
  * node:fs mis-reads default_app.asar itself (issue #24).
  *
- * ASAR 补丁下的第二层兜底：补丁 fs 会把「真实存在的 .asar 文件」stat 成目录
- * （isFile()=false、size 不可信），即便 original-fs 不可用也要能判活——此时退
- * 回真实父目录的 readdir 存在性检查（父目录不是 .asar，列表不被虚拟化）。
+ * Second-layer fallback under the ASAR patch: the patched fs stats "a .asar file that really
+ * exists" as a directory (isFile()=false, size untrustworthy), so liveness must still be
+ * decidable even when original-fs is unavailable — in that case fall back to an existence
+ * check via readdir on the real parent directory (the parent is not a .asar, so its listing is
+ * not virtualized).
  */
 export function isUsableElectronRoot(root, platform = process.platform) {
   const fs = asarSafeFs()
@@ -154,7 +161,7 @@ function requiredFilePresent(fs, abs, rel) {
   try {
     const st = fs.statSync(abs)
     if (st.isFile() && st.size > 0) return true
-  } catch { /* 走目录列表兜底 */ }
+  } catch { /* fall through to the directory-listing fallback */ }
   try {
     return readdirSync(dirname(abs)).includes(basename(rel))
   } catch {
@@ -163,7 +170,8 @@ function requiredFilePresent(fs, abs, rel) {
 }
 
 /** Diagnostic: which required files are missing from a runtime root (issue
- *  #24 排障用——「no backend」时把缺失清单打进宿主日志，一眼定位残缺点). */
+ *  #24 troubleshooting — print the missing list into the host log when there is "no backend",
+ *  so the incomplete point is obvious at a glance). */
 export function missingRuntimeFiles(root, platform = process.platform) {
   const fs = asarSafeFs()
   return requiredRuntimeFiles(platform).filter((rel) => !requiredFilePresent(fs, resolve(root, rel), rel))
@@ -179,8 +187,8 @@ export const ELECTRON_EXE = electronBinaryIn(VENDOR_DIR)
 /** Download candidates, best first. Each is the full zip URL for the current
  *  platform/arch (npmmirror first: fast in mainland China, then GitHub). */
 export function downloadMirrors(version = ELECTRON_VERSION, platform = process.platform, arch = process.arch) {
-  // Electron 发行包命名统一为 electron-v<ver>-<platform>-<arch>.zip，
-  // 直接按 platform/arch 拼，避免 Linux arm64 被错写成 linux-x64。
+  // Electron release zips are uniformly named electron-v<ver>-<platform>-<arch>.zip, so build
+  // the name directly from platform/arch to avoid writing linux arm64 as linux-x64.
   const name = `electron-v${version}-${platform}-${arch}.zip`
   return [
     `https://registry.npmmirror.com/-/binary/electron/v${version}/${name}`,
@@ -214,11 +222,12 @@ export async function ensureElectronRuntime({
   arch = process.arch,
 } = {}) {
   const electronExe = electronBinaryIn(vendorDir, platform, arch)
-  // 快速路径必须是完整性校验而非仅 exe 存在（issue #24）：exe-only 残留
-  // （复制中断、杀软锁定）会被旧判断当成已安装，从此既不下载也无法自愈。
+  // The fast path must be an integrity check, not merely "the exe exists" (issue #24): an
+  // exe-only residue (interrupted copy, antivirus lock) is treated as installed by the old
+  // check, so from then on it neither downloads nor self-heals.
   if (isUsableElectronRoot(vendorDir, platform)) return electronExe
   if (existsSync(electronExe)) {
-    onProgress?.('检测到不完整的 Electron 运行时残留，正在重新安装…')
+    onProgress?.('Detected an incomplete Electron runtime leftover, reinstalling…')
     try { rmSync(vendorDir, { recursive: true, force: true }) } catch { /* ignore */ }
   }
   // Serialise concurrent requests across the whole host process.
@@ -232,52 +241,58 @@ export async function ensureElectronRuntime({
       for (let i = 0; i < mirrors.length; i++) {
         const url = mirrors[i]
         const label = `(${i + 1}/${mirrors.length})`
-        onProgress?.(`正在下载 Electron ${ELECTRON_VERSION} ${label}…`)
+        onProgress?.(`Downloading Electron ${ELECTRON_VERSION} ${label}…`)
         try {
-          await downloadFile(url, zip, onProgress && ((p) => onProgress(`正在下载 Electron ${ELECTRON_VERSION} ${label}：${p}`)), fetchImpl)
+          await downloadFile(url, zip, onProgress && ((p) => onProgress(`Downloading Electron ${ELECTRON_VERSION} ${label}: ${p}`)), fetchImpl)
           break
         } catch (error) {
           lastError = error
-          onProgress?.(`下载源 ${i + 1} 失败（${error.message}），尝试下一个…`)
+          onProgress?.(`Download source ${i + 1} failed (${error.message}), trying the next one…`)
           try { rmSync(zip, { force: true }) } catch { /* ignore */ }
           if (i === mirrors.length - 1) {
-            throw new Error(`所有 Electron 下载源均失败：${lastError.message}`, { cause: lastError })
+            throw new Error(`All Electron download sources failed: ${lastError.message}`, { cause: lastError })
           }
         }
       }
-      onProgress?.('正在解压 Electron…')
+      onProgress?.('Extracting Electron…')
       if (platform === 'darwin') {
-        // pr-17: 直接解压进 vendorDir —— macOS 的 Electron.app bundle 内含符号链接/
-        // 特殊文件，copyFile 会因 ENOTSUP 失败；tar/bsdtar/unzip 解压会原样保留它们。
-        // vendorDir 是全新目录（下载前已 rm），解压后直接校验可执行文件即可。
+        // pr-17: extract directly into vendorDir — the macOS Electron.app bundle contains
+        // symlinks/special files that make copyFile fail with ENOTSUP; tar/bsdtar/unzip
+        // extraction preserves them as-is. vendorDir is a brand new directory (already rm'ed
+        // before download), so after extraction just verifying the executable is enough.
         rmSync(vendorDir, { recursive: true, force: true })
         mkdirSync(vendorDir, { recursive: true })
         await unzip(zip, vendorDir, spawnImpl)
       } else {
-        // pr-16 + issue #24：先解到临时 staging，完整性校验通过后「目录改名」
-        // 原子发布。不再逐文件 copyFile——Electron 宿主的 ASAR fs 补丁会把读取
-        // default_app.asar 本身误判成归档内路径而 ENOENT（报告者实测：解压正常、
-        // 复制报错、留下 exe-only 残留永不自愈）。改名不读文件内容，天然绕开；
-        // 同盘目录改名近似原子，失败只清理 staging，不污染正式目录。
+        // pr-16 + issue #24: extract into a temporary staging area first and publish by "renaming the
+        // directory" atomically once the integrity check passes. No more per-file copyFile —
+        // the ASAR fs patch of the Electron host misjudges reading default_app.asar itself as
+        // an in-archive path and fails with ENOENT (reporter's measurements: extraction works,
+        // copying errors, and an exe-only residue is left behind that never self-heals).
+        // Renaming does not read file content, so it sidesteps that by nature; renaming a
+        // directory on the same volume is near-atomic, and on failure only the staging area is
+        // cleaned up without polluting the real directory.
         await unzip(zip, work, spawnImpl)
         const binary = platform === 'win32' ? 'electron.exe' : 'electron'
         const distDir = findDistDir(work, binary)
         if (!isUsableElectronRoot(distDir, platform)) {
-          throw new Error('解压出的 Electron 运行时不完整（缺关键文件），已放弃安装')
+          throw new Error('The extracted Electron runtime is incomplete (missing critical files), install aborted')
         }
         let retired = null
         if (existsSync(vendorDir)) {
-          // 走到这里 vendorDir 只可能是残缺残留（完整运行时在快速路径已返回）。
-          // Windows 不允许改名到已存在目录，先把旧目录挪开。
+          // Reaching here means vendorDir can only be an incomplete residue (a complete runtime
+          // already returned on the fast path). Windows does not allow renaming onto an
+          // existing directory, so move the old one aside first.
           retired = `${vendorDir}.old-${process.pid}-${Date.now()}`
           renameSync(vendorDir, retired)
         }
         try {
           renameSync(distDir, vendorDir)
         } catch (error) {
-          // 改名失败（跨卷/被锁等）退回逐文件复制；复制必须走 ASAR 安全 fs。
+          // Rename failed (cross-volume / locked, …) — fall back to per-file copying; the copy must go
+          // through the ASAR-safe fs.
           if (retired) {
-            try { renameSync(retired, vendorDir); retired = null } catch { /* 旧目录已丢也不影响：其内容本就残缺 */ }
+            try { renameSync(retired, vendorDir); retired = null } catch { /* losing the old directory does not matter either: its content was incomplete to begin with */ }
           }
           mkdirSync(vendorDir, { recursive: true })
           await moveContents(distDir, vendorDir)
@@ -289,11 +304,11 @@ export async function ensureElectronRuntime({
       if (!isUsableElectronRoot(vendorDir, platform)) {
         if (platform === 'darwin') {
           const target = runtimeTarget(platform, arch)
-          throw new Error(`解压后未找到 Electron 可执行文件（${electronExe}）——期望安装包内含 ${target.tag} 的 ${target.sub.join('/')}`)
+          throw new Error(`Electron executable not found after extraction (${electronExe}) — expected ${target.sub.join('/')} from the ${target.tag} package`)
         }
-        throw new Error(`解压后未找到 Electron 可执行文件（${electronExe}）`)
+        throw new Error(`Electron executable not found after extraction (${electronExe})`)
       }
-      onProgress?.('Electron 已就绪')
+      onProgress?.('Electron is ready ✓')
       return electronExe
     } finally {
       for (const p of [work, zip]) {
@@ -335,7 +350,7 @@ async function downloadFile(url, dest, onProgress, fetchImpl = fetch) {
   }
   // Fail loudly on a truncated/zero-length download rather than feeding a
   // corrupt zip to the unzip step.
-  if (received === 0) throw new Error('下载内容为空')
+  if (received === 0) throw new Error('Downloaded content is empty')
 }
 
 /**
@@ -351,7 +366,7 @@ function findDistDir(work, binary) {
     if (existsSync(join(work, sub.name, binary))) return join(work, sub.name)
   }
   if (subdirs.length === 1) return join(work, subdirs[0].name)
-  throw new Error(`未在解压目录找到 ${binary}：${work}`)
+  throw new Error(`${binary} not found in the extracted directory: ${work}`)
 }
 
 /**
@@ -420,7 +435,7 @@ function runProgram(spawnImpl, command, args, cwd) {
     child.once('error', rejectPromise)
     child.once('exit', (code) => {
       if (code === 0) resolvePromise()
-      else rejectPromise(new Error(`${command} 退出码 ${code}`))
+      else rejectPromise(new Error(`${command} exited with code ${code}`))
     })
   })
 }

@@ -7,11 +7,13 @@ import {
   PROGRESS_ENDPOINT, verifyInstallIntegrity, infoHandler,
 } from '../../src/self-update.js'
 
-// 平台集成测试：以下用例启动真实子进程；注入 spawn/时钟的单元覆盖在默认套件。
-// 一个确定存在的目录，让 existsSync(profileDir) 检查通过
+// Platform integration tests: the cases below spawn real child processes; the
+// unit coverage that injects spawn/the clock lives in the default suite.
+// A directory that is guaranteed to exist, so the existsSync(profileDir) check passes
 const EXISTING_DIR = fileURLToPath(new URL('.', import.meta.url))
 
-// 真实请求一定带 socket：守卫查的是 TCP 层对端地址（Host 头可被页面伪造）
+// A real request always carries a socket: the guard inspects the TCP peer address
+// (the Host header can be forged by a page)
 function request(method, host = '127.0.0.1:3080', extra = {}) {
   const req = Readable.from([])
   req.method = method
@@ -30,14 +32,18 @@ function responseRecorder() {
   }
 }
 
-// ---- 0.4.4：空闲超时（替代固定 90s 硬超时）+ 实时进度 ----
-// 真子进程用 process.execPath 驱动，不依赖 PATH；脚本刻意只含空格、不含
-// > < & | 等 cmd 元字符（Windows 上 shell:true 会拼进 cmd.exe /c "..."）。
+// ---- 0.4.4: idle timeout (replacing the fixed 90s hard timeout) + live progress ----
+// The real child process is driven with process.execPath so it does not depend on
+// PATH; the script deliberately contains only spaces and no cmd metacharacters
+// like > < & | (on Windows shell:true splices it into cmd.exe /c "...").
 
 test('run(): periodic output resets the idle timer so slow downloads are not killed', async () => {
-  // 首行立即输出（模拟 pnpm 元数据解析），随后周期输出（模拟下载进度）——
-  // 进程总时长（~3s）超过 idle 阈值（3s），但空闲计时器不断被重置，不得被杀。
-  // 间隔 500ms 对 idle 3s 留 6 倍余量：全量测试并行跑时 cmd.exe 冷启动可超 1s。
+  // The first line is printed immediately (simulating pnpm metadata resolution),
+  // then output comes periodically (simulating download progress) — the total
+  // process duration (~3s) exceeds the idle threshold (3s), but the idle timer is
+  // constantly reset and the process must not be killed.
+  // The 500ms interval leaves a 6x margin against the 3s idle threshold: when
+  // the whole suite runs in parallel, a cold cmd.exe start can take over 1s.
   const script = "console.log('boot'); let n = 0; const t = setInterval(function () { n++; console.log('tick' + n); if (n === 6) { clearInterval(t) } }, 500)"
   const result = await run(process.execPath, ['-e', script], EXISTING_DIR, { idleTimeoutMs: 3000, totalTimeoutMs: 20000 })
   assert.equal(result.ok, true, 'periodic output must keep the process alive, got: ' + result.output)
@@ -60,5 +66,5 @@ test('run(): live child output feeds the progress tail buffer', async () => {
   const prog = getUpdateProgress()
   assert.ok(prog.outputTail.includes('progress-line-1'), 'tail has line 1: ' + prog.outputTail)
   assert.ok(prog.outputTail.includes('progress-line-2'), 'tail has line 2: ' + prog.outputTail)
-  assert.equal(prog.running, false, 'bare run() does not flip the update-level running flag')
+  assert.equal(prog.running, false, 'a bare run() does not flip the update-level running flag')
 })

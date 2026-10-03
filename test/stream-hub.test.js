@@ -56,13 +56,13 @@ test('broadcast pushes the latest snapshot to every subscriber', () => {
   const b = stubRes()
   hub.add(a)
   hub.add(b)
-  value = { state: 'WORKING', task: '写文档' }
+  value = { state: 'WORKING', task: 'Write the docs' }
   hub.broadcast()
   for (const res of [a, b]) {
     const frames = framesOf(res)
     assert.equal(frames.length, 2)
     assert.equal(frames[1].state, 'WORKING')
-    assert.equal(frames[1].task, '写文档')
+    assert.equal(frames[1].task, 'Write the docs')
   }
   hub.close()
 })
@@ -98,7 +98,7 @@ test('webSize counts web subscribers only (pet window excluded)', () => {
   assert.equal(hub.webSize, 1)
   hub.add(pet, { client: 'pet' })
   assert.equal(hub.size, 2)
-  assert.equal(hub.webSize, 1, '桌宠窗不是网页端')
+  assert.equal(hub.webSize, 1, 'the desktop pet window is not a web client')
   web.listeners?.close?.()
   assert.equal(hub.webSize, 0)
   hub.close()
@@ -110,9 +110,9 @@ test('onClientsChanged fires on join, leave and close', () => {
   const res = stubRes()
   assert.equal(changes, 0)
   hub.add(res)
-  assert.equal(changes, 1, '接入要通知一次：webClients 变了')
+  assert.equal(changes, 1, 'a join must notify once: webClients changed')
   res.listeners?.close?.()
-  assert.equal(changes, 2, '断开也要通知')
+  assert.equal(changes, 2, 'a leave must notify too')
   hub.close()
   assert.equal(changes, 3)
 })

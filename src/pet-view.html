@@ -1,17 +1,20 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="en">
 <head>
 <meta charset="utf-8">
-<!-- 页面资源全部同源（fetch/SSE 相对路径、favicon.svg）+ dataURL 图像 + 内联
-     script/style；声明 CSP 同时消除 Electron 的无 CSP 开发警告。 -->
+<!-- Every page resource is same-origin (relative fetch/SSE paths, favicon.svg) + dataURL
+     images + inline script/style; declaring a CSP also silences Electron's "no CSP
+     specified in development" warning. -->
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'">
-<title>蕾米埃尔桌宠</title>
+<title>Remielle desktop pet</title>
 <style>
   html, body { margin: 0; padding: 0; background: transparent; overflow: hidden; }
-  /* 主进程按真实系统缩放写入 --rm2-ui-zoom；阴影长度除以 zoom，
-     透明窗光晕的物理尺寸不随 DPI 膨胀（网页端没有这层 zoom）。
-     粉影用负 spread 把亮边收进卡片底下：透明 HWND 上普通 box-shadow
-     的半透明粉会整圈 Bloom，看起来比网页（落在不透明底上）更大更亮。 */
+  /* The main process writes the real system scale into --rm2-ui-zoom; shadow lengths are
+     divided by zoom so the glow of the transparent window does not inflate with DPI
+     (the web client has no such zoom layer).
+     The pink shadow uses a negative spread to pull the bright edge under the card: on a
+     transparent HWND a plain box-shadow in translucent pink blooms all the way around
+     and looks bigger and brighter than on the web (where it sits on an opaque base). */
   :root {
     --rm2-ui-zoom: 1;
     --rm2-glow:
@@ -21,16 +24,20 @@
       0 calc(2px / var(--rm2-ui-zoom)) calc(4px / var(--rm2-ui-zoom)) rgba(0, 0, 0, .48),
       0 calc(4px / var(--rm2-ui-zoom)) calc(10px / var(--rm2-ui-zoom)) calc(-3px / var(--rm2-ui-zoom)) rgba(140, 40, 80, .18);
   }
-  /* 内容定位职责在下方 .pet 固定锚层（见其注释），body 只负责铺满与禁选中 */
+  /* Content positioning is the job of the .pet fixed anchor layer below (see its
+     comment); body only fills the viewport and disables selection */
   body {
     width: 100vw; height: 100vh;
     user-select: none; -webkit-user-select: none;
     font-family: system-ui, sans-serif;
   }
-  /* .pet 固定锚层：尺寸钉在窗口基准（400×520 = pet-window.cjs 的
-     PET_CONTENT_W/H），fixed 贴视口左上。菜单扩窗优先向右/下长（原点不动），
-     本层不随视口伸缩，内容屏幕位置不变。贴右翻左时主进程减小 x，渲染层用
-     inline left 把本层推回。子元素纵向贴底、水平居中。 */
+  /* .pet fixed anchor layer: size pinned to the window baseline (400×520 = PET_CONTENT_W/H
+     in pet-window.cjs), pinned to the viewport top-left via fixed. When the menu grows the
+     window it prefers to grow right/down (origin unchanged), so this layer does not stretch
+     with the viewport and the content stays at the same on-screen position. When flipping to
+     the left at the right edge the main process decreases x and the renderer pushes this
+     layer back with an inline left. Children are bottom-aligned vertically, horizontally
+     centered. */
   .pet {
     position: fixed; left: 0; top: 0;
     width: 400px; height: 520px;
@@ -78,8 +85,9 @@
   }
   .rm2-pet-bubble-title { font-weight: 600; color: #b03a60; min-width: 0; flex: none; white-space: nowrap; overflow: visible; text-overflow: clip; line-height: 1.35; }
   .rm2-pet-bubble-detail { color: #c2607f; margin-top: 3px; font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
-  /* 自绘悬停提示浮层：原生 title 不吃 setZoomFactor，高缩放屏（如 200%）上文字过小。
-     阴影与菜单同套，不用网页 8/24。 */
+  /* Hand-drawn hover tip overlay: the native title does not follow setZoomFactor, so the text
+     is far too small on high-scale screens (e.g. 200%). Shares the shadow set with the menu,
+     not the web client's 8/24. */
   .rm2-pet-tip {
     position: fixed; z-index: 999;
     box-sizing: border-box;
@@ -94,10 +102,13 @@
     white-space: pre-wrap; word-break: break-all;
     display: none; pointer-events: none;
   }
-  /* 深色适配的唯一开关 = html[data-host-theme]（由 syncHostTheme() 折算宿主上报
-     与系统偏好后写入）。故意不用 prefers-color-scheme 媒体查询：属性和系统媒体
-     查询同时命中时，谁赢取决于源顺序，而"宿主浅色 + 系统深色"正是最常见的不一致
-     组合（用户开了系统深色但 DSH 用浅色主题），两套规则打架会让两端配色随机漂移。 */
+  /* The single switch for dark adaptation = html[data-host-theme] (written by
+     syncHostTheme() after reconciling the host report with the system preference).
+     Deliberately not a prefers-color-scheme media query: when the attribute and the system
+     media query both match, which one wins depends on source order, and "host light + system
+     dark" is exactly the most common inconsistent combination (the user enabled system dark
+     but DSH runs a light theme) — two rule sets fighting each other makes both clients'
+     colors drift at random. */
   html[data-host-theme="dark"] .rm2-pet-tip { background: #48142a; border-color: rgba(255, 150, 185, .42); color: #ffd6e4; }
   .rm2-pet-bubble-header { display: flex; align-items: center; min-width: 0; min-height: 29px; }
   .rm2-pet-bubble.title-clipped .rm2-pet-bubble-title { flex: 1; overflow: hidden; text-overflow: ellipsis; }
@@ -121,11 +132,13 @@
   .rm2-bubble-balance { box-sizing: border-box; height: 91px; min-height: 91px; max-width: 440px; }
   .rm2-bubble-balance .rm2-pet-bubble-title { line-height: 29px; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
   img { width: 180px; height: auto; display: block; }
-  /* 审批未送达 toast：单例提示条，悬在气泡堆叠上方（bottom 由 JS 按堆叠实时计算）；
-     pointer-events 放行桌面点击，z-index 低于右键菜单（#menu:999） */
+  /* Approval-not-delivered toast: a singleton banner hovering above the bubble stack (its
+     bottom is computed live from the stack by JS); pointer-events lets desktop clicks
+     through, z-index stays below the right-click menu (#menu:999) */
   .rm2-pet-toast {
-    /* 水平锚在 400 基准中心（与 .pet 锚层同基准）：left:50% 会随菜单扩窗后
-       变宽的视口漂到新中心，宠物不动而 toast 横移 */
+    /* Horizontally anchored at the center of the 400px baseline (same baseline as the .pet
+       anchor layer): left:50% would drift to the new center of the viewport widened by the
+       menu, moving the toast sideways while the pet stays put */
     position: fixed; left: 200px;
     display: none; align-items: center; gap: 8px;
     padding: 7px 16px 7px 9px;
@@ -145,12 +158,16 @@
   .rm2-pet-toast.hide { opacity: 0; transform: translate(-50%, 4px); transition: opacity .22s, transform .22s; }
   .rm2-pet-toast-icon { flex: none; width: 20px; height: 20px; border-radius: 50%; background: #e8508a; color: #fff; font-size: 13px; font-weight: 700; line-height: 20px; text-align: center; }
   .rm2-pet-toast b { color: #b03a60; font-weight: 600; }
-  /* Right-click menu — fill/border 与网页同色；阴影见上方气泡注释。 */
-  /* 几何参数与网页端 src/client.core.js 的 .rm2-pet-menu 逐项一致：
-     定宽 240px、行间距 6px、行内边距 7px 9px、滑块 92px、百分比 36px。
-     滑块列被压到 92px 是给名称列让位：「角色大小」4 字 ≈52px，名称列算出 64px，
-     再压就会溢出触发 ellipsis，显示成「角色大…」。test/platform/desktop-window.test.js
-     有「两端参数相等」与「名称列宽度够放最长滑块标签」两条断言钉着，改一端必须同步。 */
+  /* Right-click menu — fill/border use the same colors as the web client; see the bubble
+     comment above for the shadow. */
+  /* Geometry matches the web client's .rm2-pet-menu in src/client.core.js item by item:
+     fixed width 240px, row gap 6px, row padding 7px 9px, slider 92px, percent 36px.
+     The slider column is squeezed to 92px to make room for the label column: "Character size"
+     is ≈72px, which works out to a 64px label column for the tightest row; squeezing any
+     further overflows, triggers the ellipsis and renders "Charac…".
+     test/platform/desktop-window.test.js pins this with two assertions — "both clients'
+     parameters are equal" and "the label column is wide enough for the longest slider
+     label" — so changing one side requires changing the other. */
   .menu {
     display: none; position: fixed; z-index: 999;
     box-sizing: border-box; width: 240px;
@@ -164,15 +181,19 @@
     user-select: none; -webkit-user-select: none;
   }
   .menu-item { display: flex; justify-content: space-between; align-items: center; gap: 6px; padding: 7px 9px; border-radius: 7px; cursor: pointer; white-space: nowrap; }
-  /* 名称列吃掉余量：滑块与百分比被推到行尾，「角色大小」「透明度」两行的滑块
-     左右边缘因此严格对齐（旧写法名称字数不同，space-between 会错位）。
-     注意这里**故意不写 min-width:0** —— 可交互行的名称永不收缩，菜单一旦变窄
-     会变成看得见的溢出，而不是静默显示成「角色大…」；只有状态行允许截断。 */
+  /* The label column eats the leftover space: the slider and percent get pushed to the row
+     end, so the slider edges of the "Character size" and "Opacity" rows line up exactly (in
+     the old version the labels had different lengths, so space-between misaligned them).
+     Note that min-width:0 is **deliberately not** written here — the label of an
+     interactive row never shrinks, so a too-narrow menu becomes a visible overflow instead
+     of silently rendering "Charac…"; only the status row may be truncated. */
   .menu-item > span:first-child { flex: 1 1 auto; }
   .menu-item:hover { background: rgba(240, 120, 160, .14); }
-  /* line-height:1 是必需的：勾选符「✓」(U+2713) 走字体回退，字形盒高 19px 而标签
-     只有 16px，line-height:normal 会把行框从 30px 撑到 33px —— 勾上/取消时整行抖 3px。
-     压掉 tick 自己的行高贡献即可（与网页端 .rm2-pet-menu-item .tick 同步，改一端必须改另一端）。 */
+  /* line-height:1 is required: the checkmark "✓" (U+2713) falls back to another font whose
+     glyph box is 19px tall while the label is only 16px, so line-height:normal pushes the
+     row box from 30px to 33px — the whole row jitters 3px when checking/unchecking.
+     Flattening the tick's own line-height contribution is enough (kept in sync with the web
+     client's .rm2-pet-menu-item .tick — change one side, change the other). */
   .menu-item .tick { color: #b03a60; font-weight: 600; line-height: 1; }
   .menu-item .mute { color: #c2607f; font-size: 12px; }
   .menu-status > span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
@@ -180,14 +201,18 @@
   .menu-pct { flex: none; min-width: 36px; text-align: right; font-size: 12px; }
   .menu-sep { height: 1px; background: rgba(240, 120, 160, .25); margin: 5px 6px; }
   .menu-status { opacity: .85; cursor: default; }
-  /* 深色适配放在浅色基础规则之后：同特异性靠源顺序取胜，
-     否则浅色底会盖回深色壳，出现浅底浅字的不可读组合。
-     开关是 html[data-host-theme]（见文件上方 syncHostTheme 的说明）：网页端用
-     body[data-ds-dark-theme]，桌面窗没有宿主页面，只能吃网页端上报的 hostTheme
-     （快照字段），拿不到时才回落系统主题——两端配色因此一致。 */
-  /* 实色底：半透明壳会透出粉影，边缘看起来更亮。色值/声明与网页端
-     （body[data-ds-dark-theme] .rm2-pet-bubble）逐项对应，唯一刻意保留的差异
-     是这里的背景用实色（桌面窗底下是真桌面，.96 的半透明会透出壁纸）。 */
+  /* Dark adaptation goes after the light base rules: equal specificity is won by source
+     order, otherwise the light background would paint back over the dark shell, producing
+     the unreadable light-background/light-text combination.
+     The switch is html[data-host-theme] (see the syncHostTheme note at the top of this file):
+     the web client uses body[data-ds-dark-theme], while the desktop window has no host page
+     and can only consume the hostTheme reported by the web client (snapshot field), falling
+     back to the system theme only when it is unavailable — so both clients match. */
+  /* Solid background: a translucent shell would let the pink shadow bleed through and make
+     the edges look brighter. Every color/declaration maps item by item onto the web client's
+     (body[data-ds-dark-theme] .rm2-pet-bubble); the only deliberate difference kept here is
+     the solid background (behind the desktop window is the real desktop, and a .96
+     translucent fill would let the wallpaper show through). */
   html[data-host-theme="dark"] .rm2-pet-bubble { background: #48142a; border-color: rgba(255, 150, 185, .42); color: #ffd6e4; }
   html[data-host-theme="dark"] .rm2-pet-bubble-title { color: #ffd6e4; }
   html[data-host-theme="dark"] .rm2-pet-bubble-detail { color: #f0a8c0; }
@@ -218,7 +243,7 @@
         <div class="rm2-bubble-dot" id="bubbleDot" title=""></div>
       </div>
     </div>
-    <img id="pet" alt="蕾米埃尔" draggable="false">
+    <img id="pet" alt="Remielle" draggable="false">
   </div>
 <script>
   var bubbleEl = document.getElementById('bubble')
@@ -234,29 +259,37 @@
   var balanceRequested = false
   var SESSION_OPEN_ENDPOINT = '/plugins/dsh-pet-remielle/session/open'
   var COMPLETION_ACK_ENDPOINT = '/plugins/dsh-pet-remielle/completion/ack'
-  // 牌叠第二层假背板的固定 sessionId（不对应真实会话，仅承载 +N 与点击跳转）。
+  // Fixed sessionId of the fake backboard on the card stack's second layer (does not map to a
+// real session; it only carries the +N and the click-to-jump).
   var BUBBLE_BACKBOARD_ID = '__pet_backboard__'
   var BACKBOARD_TIP_DEBOUNCE_MS = 400
   var currentSessionId = undefined
   var bubbleEls = new Map()
-  // 自绘悬停提示浮层：原生 title 由系统渲染、不随 setZoomFactor 缩放，
-  // 高 DPI 屏（200%）上文字过小。文本存卡片 dataset.rm2Tip，悬停时显示浮层。
-  // 定位钳在「窗口 ∩ 工作区」内并留出光晕，避免贴屏边时文字出屏、阴影被 overflow:hidden 竖切。
+  // Hand-drawn hover tip overlay: the native title is rendered by the OS and does not scale
+  // with setZoomFactor, so its text is far too small on high-DPI screens (200%). The text is
+  // stored on the card's dataset.rm2Tip and the overlay is shown on hover.
+  // Positioning is clamped inside "window ∩ work area" with room left for the glow, so text
+  // never leaves the screen at a screen edge and the shadow is not cut vertically by
+  // overflow:hidden.
   var petTip = null
   var petTipAnchor = null
   var __tip = window.__rm2PetTip
   if (!__tip) throw new Error('__rm2PetTip is missing: pet-tip.js script failed to load')
-  // 气泡会话卡的标题节流、宽度测量与状态文案（审批 / 计划待审 / 完成）：
-  // 与网页端同一份实现 src/bubble-title.cjs。
+  // Bubble session cards: title throttling, width measurement and status copy (approval /
+  // plan review / completion) — the very same implementation as the web client,
+  // src/bubble-title.cjs.
   var __bubbleTitle = window.__rm2BubbleTitle
-  // 这里 throw 而不像下面的 __gifFrame 那样降级：气泡卡的标题节流、宽度测量与
-  // 状态文案都走它，缺了会静默渲染出不对的卡片，比直接报错难排查。
-  // 唯一会走到这里的是「插件文件已更新、DSH 仍未重启」——宿主内存里还没有
-  // bubble-title.js 这条路由，pet-view.html 却已是新版。
+  // This throws instead of degrading gracefully like __gifFrame below: the bubble card's title
+  // throttling, width measurement and status copy all go through it, and missing it silently
+  // renders wrong cards, which is far harder to debug than an outright error.
+  // The only way to reach here is "the plugin files were updated but DSH has not restarted" —
+  // the host has no bubble-title.js route in memory yet while pet-view.html is already new.
   if (!__bubbleTitle) throw new Error('__rm2BubbleTitle is missing: bubble-title.js failed to load — if you just updated the plugin, restart DSH')
-  // 取动态 GIF 当前帧（暂停冻结用）：与网页端同一份实现 src/gif-frame.cjs。
-  // 这里不 throw：它只服务「暂停动画」一项，缺了也不该让整个桌宠窗起不来，
-  // freeze() 不可用时自动退回首帧快照。__gifFrame.watch 起动画计时表。
+  // Grab the current frame of an animated GIF (used by the paused freeze) — the very same
+  // implementation as the web client, src/gif-frame.cjs.
+  // No throw here: it only serves the "Pause animation" feature, and its absence must not stop
+  // the whole desktop pet window from coming up — without freeze() it falls back to the first
+  // frame snapshot. __gifFrame.watch starts the animation timer table.
   var __gifFrame = window.__rm2GifFrame
   if (__gifFrame && __gifFrame.watch) __gifFrame.watch(imgEl)
   function hidePetTip() {
@@ -266,8 +299,10 @@
   function layoutPetTip(anchor, L, T, R, B) {
     __tip.layoutPetTip(petTip, anchor, L, T, R, B)
   }
-  // 一次性提示：把锚点的 tip 换成指定文案显示 ms 毫秒后还原。
-  // 用于「按设计没有执行某个动作」的时刻——比什么都不做更可解释。
+  // One-shot tip: swap the anchor's tip to the given copy, show it, and restore it ms
+  // milliseconds later.
+  // Used for the moments where an action was intentionally not performed — more explanatory
+  // than doing nothing at all.
   var TRANSIENT_TIP_MS = 2600
   function showTransientTip(anchor, text, ms) {
     if (!anchor || !anchor.dataset) return
@@ -278,8 +313,9 @@
     window.setTimeout(function () {
       if (had) anchor.dataset.rm2Tip = prev
       else delete anchor.dataset.rm2Tip
-      // 还原后若鼠标仍悬停在锚点上，showPetTip 会用原 tooltip 接管；
-      // 已移开则 renderBubble 那侧的 hidePetTip 已经收尾。
+      // After restoring, if the cursor still hovers the anchor, showPetTip takes over with
+      // the original tooltip; if the cursor already left, the hidePetTip on the renderBubble
+      // side has finished the job.
       if (petTipAnchor === anchor) showPetTip(anchor)
     }, ms || TRANSIENT_TIP_MS)
   }
@@ -363,15 +399,17 @@
   syncDotTip()
   bubbleEl.addEventListener('wheel', onBubbleWheel, { passive: false })
   bubbleStack.addEventListener('wheel', onBubbleWheel, { passive: false })
-  // 气泡区域吞掉桌宠交互事件：双击气泡不再触发画画（window dblclick），
-  // 按下/点击气泡也不再冒泡；气泡自身的圆点与会话卡操作不受影响。
+  // The bubble area swallows desktop pet interaction events: double-clicking the bubble no
+  // longer triggers drawing (window dblclick), and pressing/clicking the bubble no longer
+  // bubbles up either; the bubble's own dots and session card actions stay unaffected.
   var petSwallowTypes = ['pointerdown', 'mousedown', 'click', 'dblclick']
   ;[bubbleEl, bubbleStack].forEach(function (el) {
     for (var i = 0; i < petSwallowTypes.length; i++) {
       el.addEventListener(petSwallowTypes[i], function (e) { e.stopPropagation() })
     }
   })
-  // 右键菜单区域同样吞掉交互事件：连点菜单行不再误触画画、菜单上滚轮不再缩放
+  // The right-click menu area swallows interaction events too: clicking menu rows repeatedly no
+  // longer accidentally triggers drawing, and the wheel over the menu no longer zooms
   var menuEl = document.getElementById('menu')
   var menuSwallowTypes = ['pointerdown', 'mousedown', 'click', 'dblclick', 'wheel']
   for (var mi = 0; mi < menuSwallowTypes.length; mi++) {
@@ -379,7 +417,7 @@
   }
   var picEl = document.createElement('img')
   picEl.style.cssText = 'position:fixed;right:24px;top:24px;width:220px;height:auto;border-radius:10px;box-shadow:0 8px 24px rgba(15,30,72,.3);display:none;cursor:pointer;'
-  picEl.title = '点击关闭'
+  picEl.title = 'Click to close'
   picEl.addEventListener('click', function () { picEl.style.display = 'none' })
   document.body.appendChild(picEl)
   var lastSnapshot = null
@@ -392,29 +430,33 @@
     if (v) {
       freezeCurrentPetFrame()
     } else {
-      // 只在真的换过图时写回：冻结失败时 src 没变，重复赋同一个值会让 GIF 重启
+      // Only write the src back when it really changed image: when freezing fails src is
+      // unchanged, and assigning the same value again would restart the GIF
       if (petAnimatedSrc && imgEl.src !== petAnimatedSrc) imgEl.src = petAnimatedSrc
       petAnimatedSrc = null
-      imgEl.dataset.mood = '' // 强制下次 apply 重新设置正确贴纸
+      imgEl.dataset.mood = '' // force the next apply() to set the correct sticker again
     }
   }
-  // 暂停 = 冻在「点下去那一刻正在显示的那一帧」。
-  // 不能直接 canvas.drawImage(imgEl)：Chromium 对动态 GIF 永远只画首帧
-  // （实测见 src/gif-frame.cjs），旧实现因此会弹回起始造型。
-  // 解不出（非安全上下文没有 ImageDecoder / 不是 GIF）就退回首帧快照。
+  // Pause = freeze on "the frame that was being shown at the moment you pressed".
+  // Cannot just canvas.drawImage(imgEl): Chromium only ever paints the first frame of an
+  // animated GIF (see measurements in src/gif-frame.cjs), so the old implementation snapped
+  // back to the starting pose.
+  // When it cannot be decoded (no ImageDecoder in a non-secure context, or not a GIF) it falls
+  // back to the first-frame snapshot.
   function freezeCurrentPetFrame() {
     var url = imgEl.src
     petAnimatedSrc = url
     if (!__gifFrame || !__gifFrame.isGif(url)) { snapshotPetFirstFrame(); return }
-    var elapsed = __gifFrame.livedMs(imgEl) // 先取时刻：解码耗时不能算进动画进度
+    var elapsed = __gifFrame.livedMs(imgEl) // take the moment first: decode time must not count into animation progress
     void __gifFrame.freeze(url, elapsed).then(function (dataUrl) {
-      // 期间已恢复播放或换了贴纸：丢掉这次结果，别把宠物按在旧帧上
+      // Playback resumed or the sticker changed meanwhile: drop this result, do not pin the
+      // pet to a stale frame
       if (!petPaused || imgEl.src !== url) return
       if (!dataUrl) { snapshotPetFirstFrame(); return }
       imgEl.src = dataUrl
     })
   }
-  // 首帧兜底（= 旧行为）：drawImage 拿到的就是首帧。
+  // First-frame fallback (= the old behavior): whatever drawImage returns is the first frame.
   function snapshotPetFirstFrame() {
     try {
       var cv = document.createElement('canvas')
@@ -423,7 +465,7 @@
       var g = cv.getContext('2d')
       g.drawImage(imgEl, 0, 0, cv.width, cv.height)
       imgEl.src = cv.toDataURL('image/png')
-    } catch (e) { /* 冻结失败则忽略 */ }
+    } catch (e) { /* ignore when freezing fails */ }
   }
   var dragState = null
   var menuOpen = false
@@ -467,14 +509,19 @@
   window.addEventListener('mousemove', syncClickThrough, { passive: true })
 
   // --- right-click menu ---
-  // 与网页端 src/client.core.js buildMenuContent 同骨架、同顺序、同名条目：
-  //   状态信息 │ 角色大小 · 透明度 · 左右镜像 │ 锁定位置 · 暂停动画 · 显示气泡
-  //   │ 画画 · 重置位置 │ 桌面悬浮模式
-  // 收录标准三条：点完立刻看得见、不想为此跳设置页、关掉后还有出口。
-  // 改一端必须同步另一端（曾有「用量模式」「切换到网页模式」只在此端出现）。
-  // 勾选 span 只在「开」时插入，与网页端 makeRow(label, on ? '✓' : '') 对齐。
-  // 旧写法 value 为 false 时也插一个**空** span：flex 布局里空 span 仍占一个 gap 位，
-  // 于是桌面端 toggle 行的名称列比网页端窄 6px —— 同骨架菜单两端几何却不同。
+  // Same skeleton, same order and same named items as buildMenuContent in the web client's
+  // src/client.core.js:
+  //   status info │ Character size · Opacity · Mirror horizontally │ Lock position · Pause
+  //   animation · Show bubble │ Draw · Reset position │ Desktop floating mode
+  // Three inclusion criteria: visible immediately after the click, no reason to jump to the
+  // settings page for it, and an exit once it is closed.
+  // Changing one side requires changing the other (there used to be "Usage mode" and "Switch
+  // to web mode" appearing only on this side).
+  // The checkmark span is only inserted when "on", aligned with the web client's
+  // makeRow(label, on ? '✓' : '').
+  // The old version also inserted an **empty** span when value was false: in a flex layout an
+  // empty span still occupies one gap slot, so the label column of the desktop toggle rows
+  // ended up 6px narrower than the web client's — same skeleton, different geometry per side.
   function menuRow(label, value, onClick, interactive) {
     var row = document.createElement('div')
     row.className = 'menu-item' + (interactive ? '' : ' menu-status')
@@ -495,7 +542,8 @@
     sep.className = 'menu-sep'
     return sep
   }
-  // 写回宿主 config 的统一入口：菜单里所有可调项都走这里，不各写一份 fetch。
+  // Single entry point for writing back to the host config: every adjustable menu item goes
+  // through here instead of each one writing its own fetch.
   function patchConfig(body) {
     return fetch('/plugins/dsh-pet-remielle/config', {
       method: 'PATCH',
@@ -503,9 +551,11 @@
       body: JSON.stringify(body),
     }).catch(function () {})
   }
-  // 滑块行：与网页端 client.core.js makeSliderRow 同构（同标签、同范围、同百分比位）。
-  // 宽度/间距/百分比位全走 CSS 类（.menu-slider / .menu-pct），与网页端逐项对齐；
-  // 名称列由 .menu-item > span:first-child 的 flex:1 吃掉余量，两行滑块因此对齐。
+  // Slider row: isomorphic to makeSliderRow in the web client's client.core.js (same label,
+  // same range, same percent slot).
+  // Width/gap/percent slot all come from CSS classes (.menu-slider / .menu-pct), aligned item
+  // by item with the web client; the label column absorbs the leftover through the flex:1 of
+  // .menu-item > span:first-child, so the two slider rows line up.
   // Live preview goes through apply(); persistence through /config.
   function menuSliderRow(label, min, max, cur, onInput) {
     var row = document.createElement('div')
@@ -532,32 +582,33 @@
     row.appendChild(pct)
     return row
   }
-  // 与网页端 MOODS（src/client.core.js）一致的 mood 文字映射
-  var MOOD_TEXTS = { '01': '绘制中', '02': '摸鱼中', '03': '得意中', '04': '思考中', '05': '等待中', '06': '待机中' }
+  // Mood text map identical to MOODS in the web client (src/client.core.js)
+  var MOOD_TEXTS = { '01': 'Drawing', '02': 'Slacking', '03': 'Pleased', '04': 'Thinking', '05': 'Waiting', '06': 'Idle' }
   function buildMenu() {
     menuEl.textContent = ''
     var snap = lastSnapshot
     var running = snap && (snap.state === 'THINKING' || snap.state === 'WORKING' || snap.state === 'WAITING' || snap.state === 'ERROR')
-    // mood 取值与 apply() 一致：优先临时覆盖（点击切换/画画），否则用快照值
+    // Mood value identical to apply(): the temporary override wins (click toggle / drawing),
+    // otherwise the snapshot value
     var menuMood = moodOverride && moodOverride.until > Date.now() ? moodOverride.mood : ((snap && snap.mood) || '06')
-    menuEl.appendChild(menuRow((MOOD_TEXTS[menuMood] || '待机中') + ' · ' + (snap ? snap.message : '连接中') + (running ? ' · 运行中' : ''), null, null))
+    menuEl.appendChild(menuRow((MOOD_TEXTS[menuMood] || 'Idle') + ' · ' + (snap ? snap.message : 'Connecting') + (running ? ' · Running' : ''), null, null))
     menuEl.appendChild(menuSep())
-    // ---- 外观：即时可见，全部就地调 ----
-    menuEl.appendChild(menuSliderRow('角色大小', 0.5, 2, (snap && snap.scale) || 1, function (next) {
+    // ---- Appearance: immediately visible, all adjusted in place ----
+    menuEl.appendChild(menuSliderRow('Character size', 0.5, 2, (snap && snap.scale) || 1, function (next) {
       patchConfig({ scale: next })
       if (lastSnapshot) {
         lastSnapshot.scale = next
         apply(lastSnapshot) // live preview: width + offset transform
       }
     }))
-    menuEl.appendChild(menuSliderRow('透明度', 0.3, 1, (snap && snap.opacity) || 1, function (next) {
+    menuEl.appendChild(menuSliderRow('Opacity', 0.3, 1, (snap && snap.opacity) || 1, function (next) {
       patchConfig({ opacity: next })
       if (lastSnapshot) {
         lastSnapshot.opacity = next
         apply(lastSnapshot)
       }
     }))
-    menuEl.appendChild(menuRow('左右镜像', snap ? snap.mirror === true : false, function () {
+    menuEl.appendChild(menuRow('Mirror horizontally', snap ? snap.mirror === true : false, function () {
       var next = !(lastSnapshot ? lastSnapshot.mirror === true : false)
       patchConfig({ mirror: next })
       if (lastSnapshot) {
@@ -567,16 +618,18 @@
       buildMenu()
     }, true))
     menuEl.appendChild(menuSep())
-    // ---- 行为：开关即时生效，且一律写配置（否则快照会按配置把本地状态翻回去）----
-    menuEl.appendChild(menuRow('锁定位置', lockedNow, function () {
+    // ---- Behavior: toggles take effect immediately and always write the config (otherwise the
+    // snapshot flips the local state back per the config) ----
+    menuEl.appendChild(menuRow('Lock position', lockedNow, function () {
       lockedNow = !lockedNow
       patchConfig({ locked: lockedNow })
       buildMenu()
     }, true))
-    var pauseRow = menuRow('暂停动画', snap ? snap.paused === true : false, function () {
+    var pauseRow = menuRow('Pause animation', snap ? snap.paused === true : false, function () {
       var next = !(lastSnapshot ? lastSnapshot.paused === true : false)
-      // 必须写配置：apply() 每次都按 config.paused 校正播放状态，只改本地会被
-      // 下一次快照翻回去（网页端旧实现就是这个毛病）。
+      // Writing the config is mandatory: apply() corrects the playback state from
+      // config.paused every time, so changing only the local value gets flipped back by the
+      // next snapshot (the old web client implementation had exactly this bug).
       patchConfig({ paused: next })
       if (lastSnapshot) {
         lastSnapshot.paused = next
@@ -584,14 +637,16 @@
       }
       buildMenu()
     }, true)
-    // 悬停就先把帧表解出来（120–160 帧，约 0.1–0.4s），点下去即可立刻冻结
+    // Decode the frame table on hover (120–160 frames, about 0.1–0.4s) so pressing the row can
+    // freeze immediately
     if (__gifFrame && __gifFrame.warm) {
       pauseRow.addEventListener('mouseenter', function () { __gifFrame.warm(imgEl.src) })
     }
     menuEl.appendChild(pauseRow)
-    menuEl.appendChild(menuRow('显示气泡', snap ? snap.bubble !== false : true, function () {
+    menuEl.appendChild(menuRow('Show bubble', snap ? snap.bubble !== false : true, function () {
       var next = !(snap ? snap.bubble !== false : true)
-      // 与设置中的总开关逻辑一致：关闭→全部子开关关闭；开启→全部子开关打开
+      // Same logic as the master switch in settings: off → all sub-switches off; on → all
+      // sub-switches on
       var body = { showBubble: next }
       if (!next) { body.showBubbleStatus = false; body.showBubbleUsage = false }
       else { body.showBubbleStatus = true; body.showBubbleUsage = true }
@@ -600,26 +655,31 @@
       buildMenu()
     }, true))
     menuEl.appendChild(menuSep())
-    // ---- 动作与模式 ----
-    menuEl.appendChild(menuRow('画画', null, function () { playDraw(); closeMenu() }, true))
-    menuEl.appendChild(menuRow('重置位置', null, function () {
-      // 渲染层先清掉自己的 localStorage 兜底存档：宿主坐标被清成 null 后
-      // getInitialPosition() 返回 null，下次启动渲染层会拿旧存档 moveTo，
-      // 重置就被悄悄撤销了（见文件末尾的 localStorage 兜底）。
+    // ---- Actions and modes ----
+    menuEl.appendChild(menuRow('Draw', null, function () { playDraw(); closeMenu() }, true))
+    menuEl.appendChild(menuRow('Reset position', null, function () {
+      // The renderer clears its own localStorage fallback save first: once the host
+      // coordinates are cleared to null, getInitialPosition() returns null and on the next
+      // launch the renderer would moveTo the stale save, silently undoing the reset (see the
+      // localStorage fallback at the end of this file).
       try { localStorage.removeItem('dsh-pet-window-pos') } catch (e) { /* storage unavailable */ }
       if (window.petBridge && window.petBridge.resetPosition) window.petBridge.resetPosition().catch(function () {})
       closeMenu()
     }, true))
-    menuEl.appendChild(menuRow('桌面悬浮模式', true, function () {
-      // 与网页端同名同义：勾选态表示「当前正在桌面悬浮模式」，取消即回网页模式。
-      // 先确保 desktopMode=false 写入成功，宿主 watch 会关停桌面窗并恢复页面内
-      // 宠物；窗口本身随后关闭。
+    menuEl.appendChild(menuRow('Desktop floating mode', true, function () {
+      // Same name and same meaning as the web client: the checked state means "currently in
+      // desktop floating mode"; unchecking returns to web mode.
+      // First make sure desktopMode=false is written successfully — the host watcher stops the
+      // desktop window and restores the in-page pet; the window then closes itself.
       patchConfig({ desktopMode: false }).then(function () { window.close() })
     }, true))
   }
-  // 与网页端 openMenuAt 同一套：平时锚角色（紧凑），菜单矩形与气泡相交才改走
-  // 包围盒避让。约束用工作区。落点选出后再扩窗包住菜单+光晕。needT 钳 ≥0，
-  // 不向上改 y。贴右向左扩由主进程 setOpacity(0) 后再改 bounds，避免左右抽动。
+  // Same set as the web client's openMenuAt: normally anchored to the character (compact), and
+  // switched to the bounding-box avoidance only when the menu rect intersects the bubble.
+  // Constraints come from the work area. After picking the landing spot, grow the window to
+  // wrap menu + glow. needT is clamped >=0 and y is never moved up. Growing leftwards at the
+  // right edge goes through the main process calling setOpacity(0) before changing bounds,
+  // to avoid the window twitching sideways.
   var MENU_GLOW = 20
   function menuBoxOf(el) {
     if (!el) return null
@@ -651,10 +711,12 @@
   }
   window.__rm2ApplyPetShift = applyPetShift
   function sideMenuPos(r, mw, mh, L, T, R, B) {
-    // 角色盒子拿不到时（窗口刚开、贴纸仍在解码 → img 高 0，menuBoxOf 判空）按工作区
-    // 右下角锚定：桌宠默认就停在那儿。不加这一层会拿 null 去读 r.right 抛错，
-    // 菜单停在离屏测量位 -9999px（表现为右键没反应），实测见
-    // .global_ignored/electron-menu-geometry-probe.cjs。
+    // When the character box is unavailable (window just opened, sticker still decoding → img
+    // height 0, menuBoxOf returns empty), anchor to the bottom-right of the work area: that is
+    // where the desktop pet rests by default. Without this layer it would read r.right on a
+    // null and throw, leaving the menu at the off-screen measuring spot -9999px (which shows up
+    // as "right-click does nothing"); see the measurements in
+    // .global_ignored/electron-menu-geometry-probe.cjs.
     if (!r) r = { top: B - 48, left: R - 48, right: R - 48, bottom: B - 48 }
     var left, top
     if (r.right + 8 + mw <= R - 4) {
@@ -689,8 +751,9 @@
   function openMenuAt() {
     buildMenu()
     setForceInteractive(true)
-    // 先离屏测量：fixed 元素未设 left/top 时会停在文档默认位置，扩窗往返期间
-    // 会闪现一下；测完再定位到目标位置。
+    // Measure off-screen first: a fixed element without left/top sits at the document default
+    // position and flashes there during the window grow/shrink round trip; position it at the
+    // target after measuring.
     menuEl.style.left = '-9999px'
     menuEl.style.top = '0px'
     menuEl.style.display = 'block'
@@ -749,11 +812,13 @@
   })
 
   // --- drag: only from the pet image, JS-driven window move ---
-  // 拖动结束把最终坐标回写宿主持久化（config.desktopX/desktopY）。必须在拖动
-  // 结束处主动 getPosition 读回：Windows 上程序化 setBounds 移动不触发
-  // 'moved' 事件，靠事件做持久化会静默失效（issue #21 实测）。
-  // 主进程在 drag-end IPC 处也有一次同坐标幂等兜底回写，这里任何一环失手
-  // （moved 未置位、fetch 被吞）都不至于丢档。
+  // Write the final coordinates back to host persistence when the drag ends (config.desktopX/desktopY).
+  // The drag end must actively call getPosition to read them back: on Windows a programmatic
+  // setBounds move does not fire the 'moved' event, so relying on the event makes persistence
+  // fail silently (measured in issue #21).
+  // The main process also does an idempotent fallback write of the same coordinates at the
+  // drag-end IPC, so if any link in the chain misses (moved not set, fetch swallowed) the save
+  // is not lost.
   function persistWindowPos() {
     if (!window.petBridge || !window.petBridge.getPosition) return
     window.petBridge.getPosition().then(function (pos) {
@@ -766,13 +831,14 @@
     }).catch(function () {})
   }
   function syncCursor() {
-    // 按住期间保持握拳：快照 apply() 每次都会走到这里，不能无条件打回 grab。
+    // Keep the grabbing cursor while held: every snapshot apply() reaches this, so it must not
+    // unconditionally revert to grab.
     imgEl.style.cursor = lockedNow ? 'default' : dragState ? 'grabbing' : 'grab'
   }
   function endPetDrag() {
     if (window.petBridge && window.petBridge.dragEnd) window.petBridge.dragEnd()
     if (dragState && !dragState.moved) {
-      // 单击：随机换心情，与网页宠物一致
+      // Single click: switch to a random mood, same as the web pet
       var moods = ['01', '02', '03', '04', '05', '06']
       var current = lastSnapshot ? (lastSnapshot.mood || '06') : '06'
       var pick = moods.filter(function (m) { return m !== current })
@@ -790,8 +856,9 @@
     dragState = { x: e.screenX, y: e.screenY, moved: false }
     imgEl.style.cursor = 'grabbing'
     setForceInteractive(true)
-    // 捕获后窗外松开仍能收到 pointerup，不再用 mousemove 的 buttons 猜测松手
-    // （透明窗上 buttons 会在按住时掉成 0，握拳被提前打回张手）。
+    // With capture, a release outside the window still delivers pointerup, so no longer guessing
+    // the release from the mousemove buttons (on a transparent window buttons drops to 0 while
+    // held, and the grabbing cursor reverts to open hand too early).
     if (imgEl.setPointerCapture) imgEl.setPointerCapture(e.pointerId)
     if (window.petBridge && window.petBridge.dragStart) window.petBridge.dragStart(e.clientX, e.clientY)
   })
@@ -800,9 +867,10 @@
     var dx = e.screenX - dragState.x
     var dy = e.screenY - dragState.y
     if (Math.abs(dx) + Math.abs(dy) > 6) dragState.moved = true
-    // 拖动采用主进程闭环绝对定位（光标 - 抓取偏移）：渲染层 screenX 在
-    // Windows 显示缩放 ≠ 100% 时与 Electron 坐标存在换算差，增量式移动
-    // 会累积成 pet 相对鼠标的持续漂移；这里只负责通知主进程重新对齐。
+    // Dragging uses the main process's closed-loop absolute positioning (cursor − grab offset):
+    // the renderer's screenX differs from Electron's coordinates when the Windows display scale
+    // ≠ 100%, and incremental movement accumulates into a continuous drift of the pet relative
+    // to the mouse; here it only tells the main process to realign.
     if (window.petBridge && window.petBridge.dragMove) window.petBridge.dragMove()
     dragState = { x: e.screenX, y: e.screenY, moved: dragState.moved }
   })
@@ -818,10 +886,13 @@
     if (text !== undefined) n.textContent = text
     return n
   }
-  // 排序逻辑与网页客户端共用 src/session-order.cjs（宿主仍以 /session-order.js 提供）：
-  // 审批 > 计划审核 > 等待回答 > 完成卡 > attention > 当前会话 > stateRank > updatedAt。
+  // Sort order is shared with the web client via src/session-order.cjs (the host still serves it
+  // as /session-order.js):
+  // approval > plan review > waiting for an answer > completion card > attention > current
+  // session > stateRank > updatedAt.
   var __order = window.__rm2SessionOrder
-  // 宿主 /session-order.js 加载失败时早失败并给出可定位的成因（与网页端一致）
+  // Fail fast with a locatable cause when the host's /session-order.js fails to load (same as
+  // the web client)
   if (!__order) throw new Error('__rm2SessionOrder is missing: session-order.js script failed to load')
   var attentionOf = __order.attentionOf
   var completionOf = __order.completionOf
@@ -831,13 +902,14 @@
   function orderSessions(sessions) {
     return __order.orderSessions(sessions, currentSessionId)
   }
-  // --- approval toast：“允许一次”未送达时的气泡内提示 ---
-  // 单例节点首次调用时创建挂 body，重复触发只刷新文案与倒计时不叠加；
-  // 悬在气泡堆叠上方 8px，多卡堆叠增高时随 getBoundingClientRect 自动跟随。
+  // --- approval toast: in-bubble hint when "Allow once" was not delivered ---
+  // Singleton node created and attached to body on first call; repeated triggers only refresh
+  // the copy and the countdown instead of stacking; it hovers 8px above the bubble stack and
+  // follows automatically via getBoundingClientRect when the stack grows with more cards.
   var TOAST_TEXTS = [
-    '呜…允许一次没有送到呢，打开 DSH 网页再试一次嘛~',
-    '诶？没有找到接收的人，去 DSH 网页再按一次吧~',
-    '批准没有送到哦，打开 DSH 网页后再来一次~',
+    'Hmm… "Allow once" did not get through, try again from the DSH web client~',
+    'Huh? Nobody was found to receive it, press it again on the DSH web client~',
+    'The approval did not get through, come back once more from the DSH web client~',
   ]
   var toastEl = null
   var toastMsg = null
@@ -854,28 +926,30 @@
       toastEl.appendChild(toastMsg)
       document.body.appendChild(toastEl)
     }
-    // 重置上一轮计时器：连续触发时不叠加、不提前熄灭
+    // Reset the previous round's timers: on consecutive triggers nothing stacks and nothing goes
+    // out early
     if (toastFadeTimer) { window.clearTimeout(toastFadeTimer); toastFadeTimer = 0 }
     if (toastGoneTimer) { window.clearTimeout(toastGoneTimer); toastGoneTimer = 0 }
-    // 每次随机取一条文案，第一个逗号前的片段加粗
+    // Pick a random line of copy each time; the fragment before the first comma goes bold
     var text = TOAST_TEXTS[Math.floor(Math.random() * TOAST_TEXTS.length)]
-    var cut = text.indexOf('，')
+    var cut = text.indexOf(', ')
     var head = cut >= 0 ? text.slice(0, cut) : text
-    var tail = cut >= 0 ? text.slice(cut + 1) : ''
-    toastMsg.innerHTML = '<b>' + head + '</b>，' + tail
-    // bottom 相对视口：堆叠容器顶缘上方 8px
+    var tail = cut >= 0 ? text.slice(cut + 2) : ''
+    toastMsg.innerHTML = '<b>' + head + '</b>, ' + tail
+    // bottom relative to the viewport: 8px above the stack container's top edge
     var sr = bubbleStack.getBoundingClientRect()
     toastEl.style.bottom = (window.innerHeight - sr.top + 8) + 'px'
     toastEl.style.left = (200 + (parseFloat(petBox && petBox.style.left) || 0)) + 'px'
-    // 隐藏/淡出中都需要重新入场：复位初始态并强制 reflow，保证过渡可靠触发；
-    // 可见中重复触发则保持 .show 不闪动
+    // Both hidden and fading states need a fresh entrance: reset the initial state and force a
+    // reflow so the transition reliably fires; while visible, repeated triggers keep .show
+    // without flickering
     if (!toastEl.classList.contains('show')) {
       toastEl.classList.remove('hide')
       toastEl.style.display = 'flex'
       void toastEl.offsetWidth
       toastEl.classList.add('show')
     }
-    // 3500ms 后开始淡出，再 400ms 后彻底隐藏
+    // Start fading out after 3500ms, then hide completely 400ms later
     toastFadeTimer = window.setTimeout(function () {
       toastFadeTimer = 0
       toastEl.classList.remove('show')
@@ -896,15 +970,16 @@
     })
       .then(function (r) { return r.ok ? r.json() : null })
       .then(function (data) {
-        // delivered=false：没有网页客户端在线接收审批广播，“允许一次”没有生效，
-        // 弹 toast 提示用户到 DSH 网页重试
+        // delivered=false: no web client is online to receive the approval broadcast, so "Allow
+        // once" did not take effect — pop a toast telling the user to retry on the DSH web client
         if (data && data.delivered === false) {
           showToast()
         }
       })
       .catch(function () {})
   }
-  // 点击整张气泡卡：经宿主广播 session-action(approve=false)，由网页客户端跳转到该对话。
+  // Click the whole bubble card: goes through the host broadcast session-action(approve=false),
+  // and the web client jumps to that conversation.
   function requestSessionOpen(sessionId, completed) {
     if (!sessionId) return
     fetch(SESSION_OPEN_ENDPOINT, {
@@ -914,15 +989,17 @@
     })
       .then(function (r) { return r.ok ? r.json() : null })
       .then(function (data) {
-        // delivered=false：没有网页客户端在线——请宿主把浏览器拉到前台兜底
-        // （动作已由宿主暂存，网页端 SSE 握手后会重放并直达该对话）。
+        // delivered=false: no web client is online — ask the host to bring the browser to the
+        // foreground as a fallback (the action is already buffered by the host and the web
+        // client replays it after the SSE handshake, landing directly on that conversation).
         if (data && data.delivered === false && window.petBridge && window.petBridge.openDshPage) {
           window.petBridge.openDshPage()
         }
       })
       .catch(function () {})
   }
-  // 与网页端一致：去重 + 有限退避重试，网络抖动时绿点不至于消不掉
+  // Same as the web client: dedupe + bounded backoff retry, so the green dot does not stick
+  // around on a network blip
   var completionAckPending = new Set()
   function acknowledgeCompletion(sessionId, attempt) {
     if (!sessionId) return
@@ -958,7 +1035,7 @@
     header.appendChild(completion)
     var action = mk('span', '', '')
     action.className = 'rm2-pet-bubble-action'
-    action.setAttribute('aria-label', '蕾米埃尔桌宠')
+    action.setAttribute('aria-label', 'Remielle desktop pet')
     var brandImg = document.createElement('img')
     brandImg.src = '/favicon.svg'
     brandImg.alt = ''
@@ -980,27 +1057,33 @@
     var activate = function (event) {
       event.preventDefault()
       event.stopPropagation()
-      // 桌面端空闲占位卡单击打开带 token 的 DSH 根页面，
-      // 不把 __pet_idle__ 当作真实会话发送给宿主。
+      // The desktop idle placeholder card opens the DSH root page (with token) on a single click,
+      // and never sends __pet_idle__ to the host as a real session.
       if (el.node.dataset.idlePlaceholder === 'true') {
-        // 已经有网页开着就别再开一个（浏览器不会复用已有标签，只会越堆越多）：webClients
-        // 是宿主快照里的 SSE 订阅计数。
+        // Do not open another one when the web client is already open (the browser does not
+        // reuse an existing tab, they just pile up): webClients is the SSE subscriber count
+        // from the host snapshot.
         //
-        // 代价不只是「不新开」——什么都不做等于**点击完全静默**，用户分不清是卡住了
-        // 还是被拦下了。所以这里给一句说明去哪儿看。
+        // The cost is not only "not opening a new one" — doing nothing means the **click is
+        // completely silent**, and the user cannot tell whether it hung or was blocked. So we
+        // give one line saying where to look.
         //
-        // 顺带记录这条判据的已知缺口：webClients 是 SSE 订阅计数，而 Chromium 的
-        // tab discarding 会冻结/丢弃后台标签页，冻结期间连接不 close（hub.add 只在
-        // close/error 时清理，没有 idle 超时），于是计数虚高——用户明明关掉了所有
-        // 网页，点待机气泡却因为「以为还有网页开着」而不打开。彻底修它需要客户端
-        // 标识 + 定期心跳 + 按活跃度计数，是协议级改动，且阈值取小会把「网页真开着
-        // 但页面卡住」误判成没开、进而堆出一串标签。两害相权，这里选择保证不堆标签，
-        // 代价是至少让用户知道发生了什么。
+        // Recording the known gap of this criterion as well: webClients is an SSE subscriber
+        // count, and Chromium's tab discarding freezes/discards background tabs without closing
+        // the connection during the freeze (hub.add only cleans up on close/error, there is no
+        // idle timeout), so the count runs high — the user closed every web client, clicks the
+        // idle bubble, and nothing opens because the code thinks a web client is still open.
+        // Fixing it properly needs a client identifier + periodic heartbeats + counting by
+        // activity, which is a protocol-level change, and a small threshold would mistake "a
+        // web client really is open but the page hung" for "none open" and pile up a stack of
+        // tabs. Weighing the two, this path guarantees no tab pileup, at the cost of at least
+        // telling the user what happened.
         if (!(lastSnapshot && lastSnapshot.webClients > 0)) __tip.openIdleDshPage(window.petBridge)
-        else showTransientTip(el.node, '网页端已经开着啦，切过去看看~')
+        else showTransientTip(el.node, 'The web client is already open~ go take a look')
         return
       }
-      // 假背板：点击时按当帧排序动态解析第 2 名会话并跳转。
+      // Fake backboard: on click, dynamically resolve the 2nd-ranked session of the current
+      // frame order and jump to it.
       if (el.targetSessionId === BUBBLE_BACKBOARD_ID) {
         var target = backboardStabilizer.target()
         if (target) requestSessionOpen(target, false)
@@ -1009,9 +1092,9 @@
       requestSessionOpen(el.targetSessionId, el.completed)
       if (el.completed) acknowledgeCompletion(el.targetSessionId)
     }
-    // 与网页端一致（src/client.core.js）：图标点击除审批外一律走整卡激活
-    // （requestSessionOpen + completed 顺带 ack），不再保留“仅消除提醒、
-    // 不跳转”的桌面独占分支。
+    // Same as the web client (src/client.core.js): apart from approval, an icon click always
+    // goes through whole-card activation (requestSessionOpen + ack when completed); the
+    // desktop-only "clear the reminder without jumping" branch is no longer kept.
     action.addEventListener('click', function (event) {
       event.preventDefault()
       event.stopPropagation()
@@ -1048,7 +1131,8 @@
       return
     }
     applyBubbleTitle(el, entry)
-    // 详情行为单行文本，用 block 使 overflow/ellipsis 生效（display:flex 会让 text-overflow 失效）
+    // The detail row is single-line text, so display:block makes overflow/ellipsis effective
+    // (display:flex disables text-overflow)
     var shown = __bubbleTitle.detailShown(detail)
     el.detail.style.display = detail ? 'block' : 'none'
     if (detail !== el.lastDetail) {
@@ -1080,7 +1164,8 @@
     sessions = sessions.filter(function (entry) {
       return entry && entry.state !== 'IDLE' && entry.state !== 'DISCONNECTED'
     })
-    // 打开该会话即已读：当前对话的耐久 ERROR 不再当提醒卡（与网页端同构）。
+    // Opening a session counts as reading it: a durable ERROR in the current conversation is no
+    // longer treated as a reminder card (isomorphic with the web client).
     if (currentSessionId) {
       sessions = sessions.filter(function (entry) {
         return !(entry && entry.state === 'ERROR' && targetSessionOf(entry) === currentSessionId)
@@ -1091,7 +1176,7 @@
         sessionId: '__pet_idle__',
         state: 'IDLE',
         mood: snapshot.mood || '06',
-        message: snapshot.message || '蕾米埃尔待机中~',
+        message: snapshot.message || 'Remielle is idling~',
         detail: '',
         phase: 'idle',
         updatedAt: snapshot.updatedAt || 0,
@@ -1101,11 +1186,15 @@
     var ordered = orderSessions(sessions)
     var topEntry = ordered[0]
     if (topEntry && topEntry.mood) snapshot.mood = topEntry.mood
-    // 桌面窗只负责展示完成提醒，不代替浏览器标签页判断“是否正在查看”。
-    // 自动已读由可见的 DSH 标签页执行；显式点击完成卡仍走 session/open 确认。
-    // 牌叠只渲染首层真卡；第二层是无内容的假背板（仅 +N），不渲染第 2 名的
-    // 文字与图标——同级会话的 updatedAt 轮转因此不会造成背景卡闪换。
-    // 点击背板时按当帧排序动态解析第 2 名并跳转，这里只需记住它是谁。
+    // The desktop window only displays the completion reminder; it does not stand in for the
+    // browser tab in deciding "is it currently being viewed".
+    // Auto-mark-read is done by the visible DSH tab; an explicit click on the completion card
+    // still confirms through session/open.
+    // The stack only renders the first-layer real card; the second layer is a contentless fake
+    // backboard (just +N) that does not render the 2nd-ranked entry's text and icon — so the
+    // updatedAt rotation among same-rank sessions cannot make the background card flicker.
+    // When the backboard is clicked, the 2nd-ranked session is resolved dynamically from the
+    // current frame order; here we only need to remember who it is.
     var visibleEntries = ordered.slice(0, 1)
     if (ordered.length > 1) {
       backboardStabilizer.update(
@@ -1177,19 +1266,23 @@
   function applyTransform(mood, snapshot) {
     var scale = snapshot.scale || 1
     imgEl.style.width = Math.round(180 * scale) + 'px'
-    // 气泡缩放口径与网页端共用 pet-tip.cjs 的 bubbleZoomOf（同步/固定两模式）
+    // Bubble zoom uses the shared bubbleZoomOf, the same zoom convention as the web client
+    // (sync/locked modes)
     var bubbleZoom = __tip.bubbleZoomOf(snapshot)
     bubbleEl.style.zoom = String(bubbleZoom)
     bubbleStack.style.zoom = String(bubbleZoom)
     imgEl.style.transform = snapshot.mirror === true ? 'scaleX(-1)' : ''
   }
 
-  /* 主题来源优先级：宿主上报（快照 hostTheme，由网页端 POST /theme 得到）> 系统偏好。
-     桌面悬浮窗是独立 Electron 窗口，读不到宿主页面的 body[data-ds-dark-theme]，
-     不跟着上报走就只能在「系统深色 + DSH 浅色主题」这类组合下与网页端配色不一致
-     （菜单/气泡是同一套色值，差别只在谁触发深色）。两个来源在这里折算成同一个
-     html[data-host-theme] 属性，CSS 只认属性——不用媒体查询是为了避免两套规则
-     同时命中时靠源顺序决胜。 */
+  /* Theme source priority: host report (snapshot hostTheme, obtained from the web client's
+     POST /theme) > system preference.
+     The desktop floating window is an independent Electron window and cannot read the host
+     page's body[data-ds-dark-theme]; without following the report it would only match the web
+     client's colors in combinations like "system dark + DSH light theme" (the menu/bubble use
+     the same color values, the difference is only who triggers dark). Both sources are
+     reconciled into the same html[data-host-theme] attribute here and the CSS only listens to
+     the attribute — no media query, to avoid source order deciding when two rule sets match
+     at once. */
   var systemDarkQuery = window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)') : null
   var hostTheme = ''
   function syncHostTheme(theme) {
@@ -1199,24 +1292,28 @@
   }
   if (systemDarkQuery) {
     var onSystemThemeChange = function () {
-      // 只在没有宿主上报时才有话语权（有上报说明网页在线，以宿主为准）
+      // Only has a say when there is no host report (a report means the web client is online,
+      // so the host wins)
       if (!hostTheme) syncHostTheme('')
     }
     if (typeof systemDarkQuery.addEventListener === 'function') systemDarkQuery.addEventListener('change', onSystemThemeChange)
     else if (typeof systemDarkQuery.addListener === 'function') systemDarkQuery.addListener(onSystemThemeChange)
   }
-  // 快照到达前先按系统渲染一次：菜单/气泡此刻都是 display:none，不会闪色
+  // Render once from the system before the snapshot arrives: the menu/bubble are display:none
+  // at this point, so nothing flickers
   syncHostTheme('')
 
   function apply(snapshot) {
     if (!snapshot || snapshot.kind) return
     lastSnapshot = snapshot
-    // 网页端经宿主快照上报的当前会话；空串/缺失视为无（判空后回落 undefined）
+    // Current session reported by the web client through the host snapshot; an empty string or a
+    // missing field means none (after the empty check it falls back to undefined)
     currentSessionId = snapshot.currentSessionId || undefined
-    // 网页端上报的宿主主题（'dark' / 'light'）；缺失=没有网页在线或上报过期
+    // Host theme reported by the web client ('dark' / 'light'); missing = no web client online
+    // or the report is stale
     syncHostTheme(snapshot.hostTheme)
     if (window.__petBalance) {
-      // 用量子开关关闭时停掉 60s 轮询（与网页端一致）
+      // Stop the 60s polling when the usage sub-switch is off (same as the web client)
       window.__petBalance.setEnabled(snapshot.showBubble !== false && snapshot.showBubbleUsage === true)
       if (!window.__petBalanceInited) {
         window.__petBalanceInited = true
@@ -1227,8 +1324,9 @@
     }
     lockedNow = snapshot.locked === true
     syncCursor()
-    // 禁用桌宠或隐藏桌宠：隐藏宠物与气泡，并清掉主进程残留的命中矩形与菜单——
-    // 否则透明窗会在原区域继续拦截桌面点击（菜单开着时还会卡死 forceInteractive）
+    // Desktop pet disabled or hidden: hide the pet and the bubble, and clear the hit rects and
+    // menu left over in the main process — otherwise the transparent window keeps intercepting
+    // desktop clicks in that area (and with the menu open it also deadlocks forceInteractive)
     if (snapshot.enabled === false || snapshot.hidden === true) {
       imgEl.style.display = 'none'
       bubbleEl.style.display = 'none'
@@ -1239,12 +1337,13 @@
     }
     imgEl.style.display = 'block'
     setPetPaused(snapshot.paused === true)
-    // 翻页逻辑：双开时 currentBubblePage 决定显示哪个子项；单开时强制显示开启的子项
+    // Page switching: when both are on, currentBubblePage decides which sub-item shows; with a
+    // single one on, force-show the enabled sub-item
     var statusOn = snapshot.showBubble !== false && snapshot.showBubbleStatus !== false
     var usageOn = snapshot.showBubble !== false && snapshot.showBubbleUsage === true
     var bothOn = statusOn && usageOn
     var anyOn = statusOn || usageOn
-    // 气泡从无到有时回到状态页
+    // Return to the status page when the bubble goes from hidden to shown
     var bubbleEnabled = snapshot.showBubble !== false && anyOn
     if (bubbleEnabled && !prevBubbleVisible && currentBubblePage !== 0) {
       currentBubblePage = 0
@@ -1252,7 +1351,7 @@
       balanceRequested = false
     }
     prevBubbleVisible = bubbleEnabled
-    // 强制页面归属
+    // Force the page ownership
     var pageBefore = currentBubblePage
     if (!statusOn && usageOn && currentBubblePage === 0) { currentBubblePage = 1 }
     if (statusOn && !usageOn) { currentBubblePage = 0 }
@@ -1265,8 +1364,10 @@
       window.setTimeout(function () { if (window.__petBalance) window.__petBalance.showBalance() }, 0)
     }
     if (currentBubblePage === 0) balanceRequested = false
-    // 气泡始终捕获点击：避免点击气泡穿透到桌宠触发交互（状态页与余额页一致）。
-    // 牌叠容器也要可命中：否则卡片缝隙上的滚轮/点击会落到底层（缩放桌宠/穿透窗口）。
+    // The bubble always captures clicks: avoids a click on the bubble falling through to the pet
+    // and triggering interaction (same for the status and balance pages).
+    // The stack container must be hittable too: otherwise wheel/clicks in the gaps between
+    // cards land on the layer below (scaling the pet / the click-through window).
     var bubblePointer = snapshot.showBubble !== false ? 'auto' : 'none'
     bubbleEl.style.pointerEvents = bubblePointer
     bubbleStack.style.pointerEvents = bubblePointer
@@ -1289,15 +1390,15 @@
       show = show && !!balanceFrame && balanceFrame.kind === 'balance'
       bubbleEl.style.display = (show || bothOn) ? 'block' : 'none'
       if (show) {
-        titleEl.textContent = (balanceFrame.label || 'DeepSeek 余额') + '  ' + (balanceFrame.amount || '--')
+        titleEl.textContent = (balanceFrame.label || 'DeepSeek balance') + '  ' + (balanceFrame.amount || '--')
         titleEl.style.color = ''
         detailEl.innerHTML = (balanceFrame.detail || '') + ' · <span style="color:' + (balanceFrame.color || '#888') + '">' + (balanceFrame.period || '') + '</span>'
-        var titleText = (balanceFrame.label || 'DeepSeek 余额') + '  ' + (balanceFrame.amount || '--')
+        var titleText = (balanceFrame.label || 'DeepSeek balance') + '  ' + (balanceFrame.amount || '--')
         var detailText = (balanceFrame.detail || '') + ' · ' + (balanceFrame.period || '')
         var maxTextW = Math.max(measureTextW(titleEl, titleText), measureTextW(detailEl, detailText))
         bubbleEl.style.width = bubbleRowWidth(maxTextW) + 'px'
       } else {
-        titleEl.textContent = '余额加载中…'
+        titleEl.textContent = 'Loading balance…'
         detailEl.textContent = ''
       }
     }
@@ -1314,9 +1415,10 @@
   }
 
   var source
-  // ?client=pet：向宿主表明这是桌宠窗口的订阅（与 index.js streamClientOf
-  // 的约定一致）——宿主据此把它排除在 session-action 重放计数之外，避免桌宠
-  // 抢收导致"无网页在线"判定永远不成立。
+  // ?client=pet: tells the host this is the desktop pet window's subscription (matching the
+  // contract of streamClientOf in index.js) — the host therefore excludes it from the
+  // session-action replay count, so the desktop pet grabbing the message does not make the
+  // "no web client online" check impossible to satisfy.
   try { source = new EventSource('/plugins/dsh-pet-remielle/stream?client=pet') } catch (e) { /* fallback to polling */ }
   if (source) {
     source.onmessage = function (e) {
@@ -1332,8 +1434,8 @@
   setInterval(poll, 5000)
   poll()
 
-  // pulse 到期后 +60ms 定向刷新（与网页端一致）：等待/完成等闪现态准时回落，
-  // 不必等下一个 5s 轮询周期
+  // Targeted refresh +60ms after the pulse expires (same as the web client): transient states
+  // such as waiting/completion fall back on time, without waiting for the next 5s polling tick
   var pulseFallbackTimer = null
   function schedulePulseFallback(snapshot) {
     if (!snapshot.pulseUntil || snapshot.pulseUntil <= Date.now()) return
@@ -1344,23 +1446,25 @@
     }, snapshot.pulseUntil - Date.now() + 60)
   }
 
-  // 余额控制器：把显示帧渲染进自带气泡
+  // Balance controller: renders the display frame into the built-in bubble
   if (window.__petBalance) {
     window.__petBalance.subscribe(function (frame) {
-      // 只存数据，不直接渲染气泡；气泡渲染统一由 apply 根据 currentBubblePage 决定
+      // Only store the data, do not render the bubble directly; bubble rendering is decided
+      // uniformly by apply() based on currentBubblePage
       balanceFrame = frame
-      // 延迟渲染，避免与快照驱动的 apply 重入竞争
+      // Deferred rendering avoids racing against re-entrant apply() driven by the snapshot
       if (currentBubblePage === 1 && lastSnapshot) {
         window.setTimeout(function () { if (currentBubblePage === 1 && lastSnapshot) apply(lastSnapshot) }, 0)
       }
     })
   }
 
-  // Double-click (or menu 画画): drawing sticker loop + brush-reveal artwork.
+  // Double-click (or the menu's Draw item): drawing sticker loop + brush-reveal artwork.
   // Renders off-screen and streams frames to a desktop-top-right window (via
   // petBridge) so it never covers the pet bubble; falls back to an in-window
   // canvas if no bridge is available.
-  // 无画画锁：连续双击先 stopDraw 清掉上一轮（动画帧/定时器/画布），立即开始新一轮。
+  // No draw lock: a repeated double-click first stopDraw()s the previous round (animation frame
+  // / timers / canvas), then immediately starts a new one.
   var drawSeq = 0
   var drawRafId = 0
   var drawAfterTimer = 0
@@ -1372,22 +1476,23 @@
     if (drawHideTimer) { window.clearTimeout(drawHideTimer); drawHideTimer = 0 }
     if (drawCv && drawCv.parentNode) drawCv.parentNode.removeChild(drawCv)
     drawCv = null
-    // Electron 作品小窗：立即清掉上一幅的画面并复位淡出状态，
-    // 否则新一轮首帧推送前会闪现旧画（淡出中重开还会让新画不可见）
+    // Electron artwork mini window: immediately clear the previous picture and reset the fade
+    // state, otherwise the old painting flashes before the first frame of the new round
+    // (reopening during a fade also makes the new painting invisible)
     if (window.petBridge && window.petBridge.artworkClear) window.petBridge.artworkClear()
   }
   function playDraw() {
     if (!lastSnapshot || !lastSnapshot.pics) return
     stopDraw()
     var seq = ++drawSeq
-    var PIC_DRAW_MS = 6000 // 绘制时长 == 显示“绘制中(01)”的时长
+    var PIC_DRAW_MS = 6000 // drawing duration == the duration of showing "Drawing (01)"
     moodOverride = { mood: '01', until: Date.now() + PIC_DRAW_MS }
     apply(lastSnapshot)
     var n = Math.floor(Math.random() * lastSnapshot.pics) + 1
     var src = '/plugins/dsh-pet-remielle/assets/' + encodeURIComponent(lastSnapshot.petId || 'remielle') + '/pics/' + n + '.png'
     var img = new Image()
     img.onload = function () {
-      if (seq !== drawSeq) return // 迟到的旧图加载：新一轮已开始，丢弃
+      if (seq !== drawSeq) return // a late old image load: a new round already started, discard it
       runBrushReveal(seq, img, img.naturalWidth || 220, img.naturalHeight || 220)
     }
     img.src = src
@@ -1395,7 +1500,7 @@
 
   function runBrushReveal(seq, img, W, H) {
     var useElectron = !!(window.petBridge && window.petBridge.artworkOpen && window.petBridge.artworkSet)
-    // 显示尺寸（约 240px 宽，控制高度上限，保证 PNG 帧不至于过大）
+    // Display size (about 240px wide, capped in height so the PNG frames do not get too large)
     var dispW = 240
     var dispH = Math.max(60, Math.min(420, Math.round(240 * H / W)))
     var cv = document.createElement('canvas')
@@ -1415,7 +1520,7 @@
         window.petBridge.artworkOpen(dispW, dispH)
       } else {
         cv.style.cssText = 'position:fixed;right:24px;top:24px;width:' + dispW + 'px;height:auto;border-radius:10px;display:block;cursor:pointer;z-index:9999;'
-        cv.title = '点击关闭'
+        cv.title = 'Click to close'
         cv.addEventListener('click', function () { if (cv.parentNode) document.body.removeChild(cv) })
         document.body.appendChild(cv)
       }
@@ -1423,8 +1528,8 @@
     }
     function pushFrame(now) {
       if (!shown) openTarget()
-      if (!useElectron) return // 窗口内画布本身就是实时显示的
-      if (now - lastPush < 33) return // ~30fps，避免 IPC 过载
+      if (!useElectron) return // the in-window canvas is the live display by itself
+      if (now - lastPush < 33) return // ~30fps, avoid flooding IPC
       lastPush = now
       window.petBridge.artworkSet(cv.toDataURL('image/png'))
     }
@@ -1434,7 +1539,7 @@
       return { ax: ax, ay: ay, bx: bx, by: by }
     }
     function frame(ts) {
-      if (seq !== drawSeq) return // 双重保险：过期的动画循环直接退出
+      if (seq !== drawSeq) return // belt and braces: a stale animation loop just exits
       if (t0 === null) t0 = ts
       var p = Math.min(1, (ts - t0) / T)
       if (p >= 1) {
@@ -1442,7 +1547,8 @@
         g.globalCompositeOperation = 'source-over'
         g.drawImage(img, 0, 0, W, H, 0, 0, dispW, dispH)
         pushFrame(ts)
-        // 绘制完成：切“得意中(03)”，保持片刻后 0.8s 淡出再关闭（计时均可被下一轮取消）
+        // Drawing done: switch to "Pleased (03)", hold for a moment, then fade out over 0.8s and
+        // close (both timers can be cancelled by the next round)
         moodOverride = { mood: '03', until: Date.now() + 2200 }
         apply(lastSnapshot)
         drawAfterTimer = window.setTimeout(function () {
@@ -1467,7 +1573,7 @@
         var sk = Math.min(1, Math.max(0, s + k * 0.04))
         var cx = L.bx + (L.ax - L.bx) * sk
         var cy = L.by + (L.ay - L.by) * sk
-        // 笔刷路径加一点小小的随机
+        // A little randomness on the brush path
         cx += (Math.random() - 0.5) * r * 0.6
         cy += (Math.random() - 0.5) * r * 0.6
         var rr = r * (0.85 + 0.3 * Math.random())
@@ -1502,9 +1608,11 @@
   }, { passive: false })
 
   // Remember the window position across restarts.
-  // 恢复优先级：宿主持久化（config.desktopX/desktopY，主进程建窗即定位）>
-  // localStorage 兜底（宿主持久化缺位时才有用，其存档落在 userData 且可能过期）。
-  // 主进程已按持久化坐标定位时绝不能再 moveTo，否则旧存档与宿主坐标打架。
+  // Restore priority: host persistence (config.desktopX/desktopY, the main process positions
+  // the window at creation) > localStorage fallback (only useful when the host persistence is
+  // missing; its save lives in userData and may be stale).
+  // Never moveTo again once the main process has positioned the window by the persisted
+  // coordinates, otherwise the stale save fights the host coordinates.
   var initialPosKnown = window.petBridge && window.petBridge.getInitialPosition
     ? window.petBridge.getInitialPosition().catch(function () { return null })
     : Promise.resolve(null)

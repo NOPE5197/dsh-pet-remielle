@@ -1,24 +1,34 @@
 NOTICE
 
-dsh-pet-remielle 素材来源与署名：
+Asset sources and attribution for dsh-pet-remielle:
 
-1. 角色形象：蕾米埃尔（Remielle），出自《绝区零》（Zenless Zone Zero）
-   版权所有人：米哈游（HoYoverse）／《绝区零》项目组
+1. Character art: Remielle (Remielle), from Zenless Zone Zero (《绝区零》)
+   Copyright holder: miHoYo (HoYoverse) / the Zenless Zone Zero project team
 
-2. 表情包素材：《绝区零》「初代虚狩，回归」活动表情包（6 张 GIF：01–06）
-   版权所有人：米哈游（HoYoverse）／《绝区零》项目组
-   来源：活动表情包&壁纸 官方发布素材（用户本地收藏）
-   （注：v0.2 起默认宠物素材已替换为下方第 3 条的高清版本；此条保留历史来源声明）
+2. Emote assets: the Zenless Zone Zero "First-Generation Void Hunter, Returned" event
+   emotes (6 GIFs: 01–06)
+   Copyright holder: miHoYo (HoYoverse) / the Zenless Zone Zero project team
+   Source: officially released event emote & wallpaper assets (collected locally by the user)
+   (Note: since v0.2 the default pet assets have been replaced with the higher-resolution
+   versions in item 3 below; this entry is kept as a historical source statement)
 
-3. 「蕾米埃尔」当前宠物素材（assets/pets/remielle/：7 张 GIF + 15 张虚狩绘本 PNG）
-   作者：ZanyZebra（b站）— 桌宠作品《小蕾米》（用户本地授权使用，已覆盖为默认宠物）
-   来源：用户本地收藏的免费桌宠资源（作者声明免费下载，禁止商用）
+3. Current "Remielle" pet assets (assets/pets/remielle/: 7 GIFs + 15 Void Hunter
+   picture-book PNGs)
+   Author: ZanyZebra (Bilibili) — desktop-pet work "Little Remielle" (licensed for use
+   by the user locally, and now used as the default pet)
+   Source: free desktop-pet resources collected locally by the user (the author declares
+   them free to download; commercial use prohibited)
 
-许可：
-- 本插件代码按个人学习用途分发；角色形象与素材版权归原权利方所有。
-- 禁止商业性使用；禁止以任何形式再分发素材文件本身（assets/*.gif 与内联 data URI）。
-- 如需商用或转载，请联系版权方取得授权。
+License:
+- This plugin's code is distributed for personal study and learning; the character art and
+  the assets are owned by the original rights holders.
+- Commercial use is prohibited; redistributing the asset files themselves (assets/*.gif and
+  inline data URIs) in any form is prohibited.
+- If you need commercial use or want to reprint, please contact the copyright holder to
+  obtain authorization.
 
-架构来源：
-- 事件驱动状态机 / 协议 / 配置体系重写自 dsh-dafeiyu（https://github.com/QCYTSN/dsh-dafeiyu）
-- 原始 Web 桌宠与素材管线来自 dsh-pet-remielle（https://github.com/Gin-7/dsh-pet-remielle）
+Architecture sources:
+- The event-driven state machine / protocol / configuration system are rewritten from
+  dsh-dafeiyu (https://github.com/QCYTSN/dsh-dafeiyu)
+- The original web desktop pet and the asset pipeline come from dsh-pet-remielle
+  (https://github.com/Gin-7/dsh-pet-remielle)

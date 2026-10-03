@@ -1,19 +1,20 @@
-name: 测试
+name: Tests
 
-# 本仓库的测试全部是 node --test + node:assert，无外部测试框架。
-# 依赖只有 @deepseek-ai/schemastery（src/index.js 的 Config schema 用）；
-# @deepseek-ai/cordis 是 peerDependency，测试不需要，用 --omit=peer 跳过，
-# 免得为一个宿主 SDK 拉整棵依赖树。
+# Every test in this repo is node --test + node:assert, with no external test framework.
+# The only dependency is @deepseek-ai/schemastery (used for the Config schema in src/index.js);
+# @deepseek-ai/cordis is a peerDependency and the tests don't need it — they pass --omit=peer to skip it,
+# so a whole dependency tree isn't pulled in just for a host SDK.
 
 on:
   push:
-    # '**'：本 fork 的开发直接推分支（见 AGENTS.md），只盯 main 会让日常推送
-    # 完全不触发 CI。并发组会自动取消同一分支的旧运行，避免重复占用矩阵 runner。
+    # '**': development on this fork is pushed straight to branches (see AGENTS.md), and
+    # watching main only would mean daily pushes never trigger CI at all. The concurrency
+    # group automatically cancels older runs of the same branch, so the matrix runner is not used twice.
     branches: ['**']
   pull_request:
 
 concurrency:
-  # 同一分支只保留最新提交；push 与 pull_request 事件共用分支名，避免同一提交跑两套矩阵。
+  # Keep only the newest commit per branch; push and pull_request events share the branch name, so one commit doesn't run two matrices.
   group: ${{ github.workflow }}-${{ github.event.pull_request.head.ref || github.ref_name }}
   cancel-in-progress: true
 
@@ -32,24 +33,24 @@ jobs:
         with:
           node-version: 22
 
-      - name: 安装依赖
+      - name: Install dependencies
         run: npm install --omit=peer --no-package-lock --no-audit --no-fund
 
-      - name: 语法检查
+      - name: Syntax check
         run: npm run check
 
-      # 完整行为套件只跑一次；Windows/macOS 只跑平台相关测试，避免重复消耗稀缺 runner。
-      - name: 完整测试
+      # The full behavioural suite runs only once; Windows/macOS run just the platform-specific tests, to avoid burning scarce runners on duplicates.
+      - name: Full test suite
         run: npm test
 
-      - name: 构建产物与源码同步
+      - name: Build artifact matches source
         run: git diff --exit-code lib/client.js
 
-      - name: 构建产物行尾
+      - name: Build artifact line endings
         run: node -e "const b=require('fs').readFileSync('lib/client.js');if(b.includes(13)){console.error('lib/client.js 含 CR，产物必须是单一 LF');process.exit(1)}"
 
   platform:
-    # 不加 fail-fast：两个平台的结果都要看到；这不等于覆盖每个架构。
+    # No fail-fast: both platforms' results should be visible; this does not mean every architecture is covered.
     name: platform (${{ matrix.os }})
     strategy:
       fail-fast: false
@@ -64,12 +65,12 @@ jobs:
         with:
           node-version: 22
 
-      - name: 安装依赖
+      - name: Install dependencies
         run: npm install --omit=peer --no-package-lock --no-audit --no-fund
 
-      - name: 语法检查
+      - name: Syntax check
         run: npm run check
 
-      # Electron/窗口/更新器测试依赖平台；完整行为套件由 unit job 覆盖。
-      - name: 平台测试
+      # The Electron/window/updater tests are platform-dependent; the full behavioural suite is covered by the unit job.
+      - name: Platform tests
         run: npm run test:platform

@@ -31,7 +31,7 @@ test('turn/start -> THINKING with sticker 04', () => {
   assert.equal(state.mood, '04')
 })
 
-test('assistant streaming -> sticker 01 (绘制中)', () => {
+test('assistant streaming -> sticker 01 (Drawing)', () => {
   const reducer = new PetReducer()
   const state = latestState(reducer, session(), [
     event('turn/start'),
@@ -42,12 +42,12 @@ test('assistant streaming -> sticker 01 (绘制中)', () => {
   assert.equal(state.mood, '01')
 })
 
-test('assistant/chunk text-delta -> 绘制中 01, reasoning-delta -> 思考中 04', () => {
+test('assistant/chunk text-delta -> Drawing 01, reasoning-delta -> Thinking 04', () => {
   const reducer = new PetReducer()
   const messages = collect(reducer, session(), [
     event('turn/start'),
-    event('assistant/chunk', { chunk: { type: 'reasoning-delta', text: '让me想…' } }, 2),
-    event('assistant/chunk', { chunk: { type: 'text-delta', text: '好的' } }, 3),
+    event('assistant/chunk', { chunk: { type: 'reasoning-delta', text: 'let me think…' } }, 2),
+    event('assistant/chunk', { chunk: { type: 'text-delta', text: 'sure' } }, 3),
     event('assistant/chunk', { chunk: { type: 'tool-call-delta', name: 'read' } }, 4),
   ])
   const states = messages.filter((m) => m.kind === PetMessageKind.STATE)
@@ -55,11 +55,11 @@ test('assistant/chunk text-delta -> 绘制中 01, reasoning-delta -> 思考中 0
   const output = states[2]
   const tool = states[3]
   assert.equal(reasoning.phase, 'think')
-  assert.equal(reasoning.mood, '04')          // 思考块 → 04
+  assert.equal(reasoning.mood, '04')          // reasoning chunk → 04
   assert.equal(output.phase, 'streaming')
-  assert.equal(output.mood, '01')             // 输出 → 01
+  assert.equal(output.mood, '01')             // output → 01
   assert.equal(tool.state, PetState.WORKING)
-  assert.equal(tool.mood, '02')               // 工具 → 02
+  assert.equal(tool.mood, '02')               // tool → 02
 })
 
 test('tool/call -> WORKING with sticker 02 and activity', () => {
@@ -81,7 +81,7 @@ test('exit_plan_mode keeps a plan-review card until the tool resolves', () => {
     event('tool/call', {
       callId: 'plan-1',
       name: 'exit_plan_mode',
-      arguments: { plan: '# 推理面板改材质\n\n让面板和官方菜单一致。' },
+      arguments: { plan: '# Swapping the reasoning panel material\n\nMake the panel match the official menu.' },
     }, 2),
   ])
   const pending = reducer.states()[0]
@@ -90,7 +90,7 @@ test('exit_plan_mode keeps a plan-review card until the tool resolves', () => {
   assert.equal(pending.ask, false)
   assert.equal(pending.approval, false)
   assert.equal(pending.phase, 'plan-review')
-  assert.match(pending.detail, /计划待审 · 推理面板改材质/)
+  assert.match(pending.detail, /Plan review · Swapping the reasoning panel material/)
 
   collect(reducer, sess, [event('tool/result', { callId: 'plan-1' }, 3)])
   assert.equal(reducer.states()[0].state, PetState.THINKING)
@@ -126,7 +126,7 @@ test('tool/result with real DSH shape (message.source.callId) clears the open to
   const reducer = new PetReducer()
   // DSH emits tool/result with the callId at message.source.callId, not at the
   // top level. If the reducer fails to clear the open tool, later streaming
-  // output would stay stuck on 摸鱼中 (02) instead of 绘制中 (01).
+  // output would stay stuck on Slacking (02) instead of Drawing (01).
   const messages = collect(reducer, session(), [
     event('turn/start'),
     event('tool/call', { callId: 'c1', name: 'grep' }, 2),
@@ -145,15 +145,15 @@ test('todo/write emits a TASK message with progress', () => {
     event('turn/start'),
     event('todo/write', {
       todos: [
-        { status: 'completed', content: '第一件事' },
-        { status: 'in_progress', content: '正在做第二件事' },
-        { status: 'pending', content: '第三件事' },
+        { status: 'completed', content: 'First thing' },
+        { status: 'in_progress', content: 'Doing the second thing' },
+        { status: 'pending', content: 'Third thing' },
       ],
     }, 2),
   ])
   const task = messages.find((m) => m.kind === PetMessageKind.TASK)
   assert.ok(task)
-  assert.match(task.task, /正在做第二件事/)
+  assert.match(task.task, /Doing the second thing/)
   assert.deepEqual(task.progress, { completed: 1, total: 3, current: 2 })
 })
 
@@ -186,7 +186,7 @@ test('turn/end completed -> SUCCESS pulse with IDLE resume', () => {
   assert.deepEqual(reducer.states(), [])
 })
 
-test('turn/end aborted -> IDLE (已停止)', () => {
+test('turn/end aborted -> IDLE (Stopped)', () => {
   const reducer = new PetReducer()
   const state = latestState(reducer, session(), [
     event('turn/start'),
@@ -197,10 +197,11 @@ test('turn/end aborted -> IDLE (已停止)', () => {
   assert.deepEqual(reducer.states(), [])
 })
 
-// states() 的对外形状：一条活动会话 = 一条 entry，标题/项目/贴纸/提示都在这里；
-// 已结束的 turn 不再占位。空态、同形状断言、settled 省略合并在此。
+// The public shape of states(): one live session = one entry, with the
+// title/project/sticker/tip all in there; settled turns no longer take a slot.
+// The empty case, the same-shape assertion and the settled omission are merged here.
 test('states() exposes one entry per live session and drops settled turns', () => {
-  assert.deepEqual(new PetReducer().states(), [], '没有会话时应为空')
+  assert.deepEqual(new PetReducer().states(), [], 'empty when there are no sessions')
 
   const reducer = new PetReducer()
   collect(reducer, session('completed'), [
@@ -214,18 +215,18 @@ test('states() exposes one entry per live session and drops settled turns', () =
   collect(reducer, session('s1', { header: { id: 's1', cwd: 'D:\\workspace\\company\\A07' } }), [
     event('turn/start', {}, 5),
     event('assistant/message', {}, 6),
-    // session/title 只写标题，不得改动贴纸
-    event('session/title', { title: '审查提示框颜色与溢出问题' }, 7),
+    // session/title only writes the title, it must not change the sticker
+    event('session/title', { title: 'Reviewing tooltip colors and overflow' }, 7),
   ])
 
   const states = reducer.states()
-  assert.deepEqual(states.map((entry) => entry.sessionId), ['s1'], '已结束的 turn 不应占位')
+  assert.deepEqual(states.map((entry) => entry.sessionId), ['s1'], 'a settled turn must not hold a slot')
   const [entry] = states
   assert.equal(entry.state, PetState.THINKING)
   assert.equal(entry.mood, '01')
   assert.ok(entry.detail)
   assert.equal(entry.attention, false)
-  assert.equal(entry.title, '审查提示框颜色与溢出问题')
+  assert.equal(entry.title, 'Reviewing tooltip colors and overflow')
   assert.equal(entry.project, 'A07')
 })
 
@@ -283,7 +284,7 @@ test('disposeSession drops the record and re-renders', () => {
   const messages = reducer.disposeSession(sess)
   assert.ok(messages.some((m) => m.kind === PetMessageKind.STATE))
 
-  // 只摘掉这一个会话，其余照常留在牌叠里
+  // Only that one session is dropped; the rest stay in the deck as usual
   collect(reducer, session('s1'), [event('turn/start', {}, 2)])
   collect(reducer, session('s2'), [event('turn/start', {}, 3)])
   reducer.disposeSession(session('s1'))
@@ -406,16 +407,16 @@ test('approval/asked -> WAITING, approval/decided restores WORKING', () => {
       id: 'a1',
       toolName: 'bash',
       callId: 'c',
-      reason: 'escalate sandbox to danger-full-access: 同步插件',
+      reason: 'escalate sandbox to danger-full-access: sync the plugin',
     }, 3),
   ])
   const states = messages.filter((m) => m.kind === PetMessageKind.STATE)
   const waiting = states.find((m) => m.phase === 'approval')
   assert.equal(waiting.state, PetState.WAITING)
   assert.equal(waiting.mood, '05')
-  assert.equal(waiting.detail, 'dsh-pet-remielle · 同步插件')
+  assert.equal(waiting.detail, 'dsh-pet-remielle · sync the plugin')
   assert.equal(reducer.states()[0].approval, true)
-  assert.equal(reducer.states()[0].detail, 'dsh-pet-remielle · 同步插件')
+  assert.equal(reducer.states()[0].detail, 'dsh-pet-remielle · sync the plugin')
   const tail = collect(reducer, sess, [
     event('approval/decided', { id: 'a1', outcome: 'allow' }, 4),
     event('tool/result', { callId: 'c' }, 5),
@@ -467,8 +468,9 @@ test('late interaction results do not resurrect a completed turn', () => {
   assert.deepEqual(reducer.states(), [])
 })
 
-// 标题折叠：宿主只在 session/title 事件里给标题，插件靠 snapshotEvents() 补历史。
-// 每行一个独立场景，失败时看断言消息即可。
+// Title folding: the host only hands over titles through session/title events, and
+// the plugin backfills history via snapshotEvents(). One scenario per line, so a
+// failure is readable straight from the assertion message.
 test('states() folds session titles from the host log', () => {
   const fold = (sess, events) => {
     const reducer = new PetReducer()
@@ -477,48 +479,51 @@ test('states() folds session titles from the host log', () => {
   }
   assert.equal(
     fold(session('s1', {
-      snapshotEvents: () => [{ type: 'session/title', data: { title: '审查提示框颜色与溢出问题' } }],
+      snapshotEvents: () => [{ type: 'session/title', data: { title: 'Reviewing tooltip colors and overflow' } }],
     }), [event('turn/start')]),
-    '审查提示框颜色与溢出问题',
-    '日志里的标题应被折取',
+    'Reviewing tooltip colors and overflow',
+    'a title in the log should be folded out',
   )
-  // 恢复的老会话：标题事件在插件加载前就写进日志，取最后一条
+  // A resumed old session: the title events were written into the log before the
+  // plugin loaded, so take the last one
   assert.equal(
     fold(session('s1', {
       snapshotEvents: () => [
-        { type: 'session/title', data: { title: '旧标题' } },
+        { type: 'session/title', data: { title: 'Old title' } },
         { type: 'turn/start' },
-        { type: 'session/title', data: { title: '新标题' } },
+        { type: 'session/title', data: { title: 'New title' } },
       ],
     }), [event('turn/start'), event('step/start', {}, 2)]),
-    '新标题',
-    '取日志里最后一条标题',
+    'New title',
+    'takes the last title in the log',
   )
-  // DSH 写入时已按 maxTitleBytes 规范化，插件不再二次截断——服务口径与日志口径
-  // 必须一致，否则同一会话的标题长度会随服务是否加载而变。
-  const long = '标'.repeat(120)
+  // DSH already normalizes by maxTitleBytes when writing, and the plugin never
+  // truncates a second time—the service rule and the log rule must agree, or the
+  // title length of the same session would depend on whether the service loaded.
+  const long = 'Long title '.repeat(90).trim()
   assert.equal(
     fold(session('s1', { snapshotEvents: () => [{ type: 'session/title', data: { title: long } }] }), [event('turn/start')]),
     long,
-    '标题应原样保留',
+    'the title is kept verbatim',
   )
-  // session.events 不是宿主 API，不得据此产出标题
+  // session.events is not a host API, so no title may be produced from it
   assert.equal(
-    fold(session('s1', { events: [{ type: 'session/title', data: { title: '不存在的内部字段' } }] }), [event('turn/start')]),
+    fold(session('s1', { events: [{ type: 'session/title', data: { title: 'a field that does not exist' } }] }), [event('turn/start')]),
     undefined,
-    '没有 snapshotEvents() 时不折叠',
+    'no folding without snapshotEvents()',
   )
-  // 宿主抛错不能让整条消息链断掉
+  // A throwing host must not break the whole message chain
   const reducer = new PetReducer()
   const messages = collect(reducer, session('s1', { snapshotEvents: () => { throw new Error('boom') } }), [event('turn/start')])
   assert.ok(messages.length > 0)
-  assert.equal(reducer.states()[0].title, undefined, 'snapshotEvents 抛错时应降级为无标题')
+  assert.equal(reducer.states()[0].title, undefined, 'a throwing snapshotEvents degrades to no title')
 })
 
 test('states() folds the log once per session and keeps taking later titles', () => {
   const reducer = new PetReducer()
   let calls = 0
-  // 日志里始终没有 session/title（标题尚未生成）：折取不得每个事件都做一遍。
+  // There is never a session/title in the log (the title has not been produced yet):
+  // folding must not run on every event.
   const sess = session('s1', { snapshotEvents: () => { calls++; return [{ type: 'turn/start' }] } })
   collect(reducer, sess, [
     event('turn/start'),
@@ -527,22 +532,26 @@ test('states() folds the log once per session and keeps taking later titles', ()
   ])
   assert.equal(calls, 1)
 
-  // 折过一次之后，实时 session/title 事件仍要能覆盖
+  // After one fold, a live session/title event must still be able to override
   const live = new PetReducer()
-  const liveSess = session('s1', { snapshotEvents: () => [{ type: 'session/title', data: { title: '旧标题' } }] })
+  const liveSess = session('s1', { snapshotEvents: () => [{ type: 'session/title', data: { title: 'Old title' } }] })
   collect(live, liveSess, [event('turn/start')])
-  assert.equal(live.states()[0].title, '旧标题')
-  collect(live, liveSess, [event('session/title', { title: '改过的标题' }, 2)])
-  assert.equal(live.states()[0].title, '改过的标题')
+  assert.equal(live.states()[0].title, 'Old title')
+  collect(live, liveSess, [event('session/title', { title: 'Renamed title' }, 2)])
+  assert.equal(live.states()[0].title, 'Renamed title')
 })
 
-// 牌叠顺序：需要人处理的会话（审批 > 提问 > ERROR）压过后台工作流，
-// 同一批会话一次性排序，避免分散在多个用例里互相漂移。
+// Card deck ordering: sessions that need a human (approval > question > ERROR) rank
+// above background workflows; one batch of sessions is sorted at once so the order
+// cannot drift between separate cases.
 //
-// 分工：优先级表本身只由 test/session-order.test.js 定义一处（它直接测
-// compareSessions）。这里是**接线护栏**——事件按 work/stream/err/ask/appr 的乱序
-// 喂进去，断言 states() 真的按比较器排过（完全不排序就会挂），而不是把规则再
-// 表述一遍。后半段的 state/attention 标注与排序无关，是本用例自己的价值。
+// Division of labour: the priority table itself is defined in exactly one place,
+// test/session-order.test.js (which tests compareSessions directly). This is a
+// **wiring guard rail**—events are fed in the shuffled order
+// work/stream/err/ask/appr, and the assertion checks that states() really did sort
+// through the comparator (it fails with no sorting at all), rather than restating
+// the rules. The state/attention annotations in the second half are unrelated to
+// ordering and are this case's own value.
 test('states() ranks approval above ask above ERROR above background work', () => {
   const reducer = new PetReducer()
   collect(reducer, session('work'), [
@@ -591,14 +600,15 @@ test('turn/end error -> durable ERROR attention', () => {
   ])
   assert.equal(state.state, PetState.ERROR)
   assert.equal(state.phase, 'turn-end')
-  assert.equal(state.stage, '需要处理')
+  assert.equal(state.stage, 'Needs attention')
   const states = reducer.states()
   assert.equal(states.length, 1)
   assert.equal(states[0].attention, true)
 })
 
-// dismissError 只处理"要人处理"的 ERROR 卡：其余状态与未知 id 必须是无操作，
-// 否则一次误点会把正在进行的会话从牌叠里抹掉。
+// dismissError only handles the ERROR card that "needs a human": every other state
+// and an unknown id must be a no-op, or one stray click would wipe a running
+// session out of the deck.
 test('dismissError clears only durable ERROR sessions', () => {
   const failed = (seq) => [
     event('turn/start', {}, seq),
@@ -611,7 +621,7 @@ test('dismissError clears only durable ERROR sessions', () => {
   assert.equal(solo.dismissError('s1').at(-1).state, PetState.IDLE)
   assert.deepEqual(solo.states(), [])
 
-  // 后台 ERROR + 前台 WAITING：只摘掉后台那条
+  // Background ERROR + foreground WAITING: only the background one is dropped
   const mixed = new PetReducer()
   collect(mixed, session('ask'), [
     event('turn/start'),
@@ -624,7 +634,7 @@ test('dismissError clears only durable ERROR sessions', () => {
   assert.equal(mixed.states()[0].sessionId, 'ask')
   assert.equal(mixed.states()[0].state, PetState.WAITING)
 
-  // WAITING / WORKING / 未知 id：一律无操作
+  // WAITING / WORKING / unknown id: always a no-op
   const live = new PetReducer()
   collect(live, session('ask'), [
     event('turn/start'),

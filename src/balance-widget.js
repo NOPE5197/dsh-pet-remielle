@@ -38,7 +38,8 @@
   // ---- helpers ----
   function pickOne(arr) { return arr[Math.floor(Math.random() * arr.length)] }
   function fmt(balance, currency) {
-    // 未知余额显示 “--”，绝不把 null/未取到 显示成 ¥0.00（金额敏感，避免误导“余额耗尽”）
+    // An unknown balance shows as "--"; never render a null / not-fetched value as
+    // ¥0.00 (amounts are sensitive — it would read as "the balance is spent").
     if (balance === null || balance === undefined || !isFinite(Number(balance))) return '--'
     var num = Number(balance)
     var fixed = num.toFixed(2)
@@ -53,7 +54,7 @@
   }
 
   function periodText() {
-    return state.isPeak ? '高峰时段' : '空闲时段'
+    return state.isPeak ? 'Peak hours' : 'Off-peak hours'
   }
   function periodColor() {
     return state.isPeak ? '#e0433f' : '#2fa24c'
@@ -61,17 +62,19 @@
 
   function emitBalance(amount) {
     var used = state.todayUsage !== null && state.todayUsage !== undefined ? fmt(state.todayUsage, state.currency) : '--'
-    var detail = '今日已用 ' + used
+    var detail = "Today's usage " + used
     var period = periodText()
     var color = periodColor()
-    // 失败时可观测：把时段替换为"获取失败"，不要把错误信息再拼进 detail（客户端会再拼一次 · period，会重复）
+    // Stay observable on failure: replace the period with "fetch failed" instead of
+    // splicing the error message into detail as well (the client appends " · period"
+    // a second time, so it would show up duplicated).
     if (state.status === 'error' && state.message) {
-      period = '获取失败'
+      period = 'Fetch failed'
       color = '#c0392b'
     }
     emit({
       kind: 'balance',
-      label: 'DeepSeek 余额',
+      label: 'DeepSeek balance',
       amount: amount !== undefined ? fmt(amount, state.currency) : fmt(shown, state.currency),
       detail: detail,
       period: period,
@@ -140,13 +143,13 @@
           if (mode === 'balance') emitBalance(shown)
         } else {
           state.status = 'error'
-          state.message = (data && data.error) ? String(data.error) : '获取失败'
+          state.message = (data && data.error) ? String(data.error) : 'Fetch failed'
           if (mode === 'balance') emitBalance(shown)
         }
       })
       .catch(function () {
         state.status = 'error'
-        state.message = '获取失败'
+        state.message = 'Fetch failed'
         if (mode === 'balance') emitBalance(shown)
       })
       .finally(function () {
@@ -167,7 +170,7 @@
       usageMode = next
       refresh(false)
     },
-    /** 用量子开关关闭时停掉 60s 轮询，开启时恢复（立即拉一次）。 */
+    /** Stop the 60s polling while the usage sub-switch is off, resume when it comes back on (fetch once right away). */
     setEnabled: function (on) {
       var next = on === true
       if (next === polling) return

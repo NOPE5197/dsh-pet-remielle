@@ -4,13 +4,14 @@
  * Web: inlined by scripts/build-client.mjs ahead of client.core.js.
  * Desktop: served at /plugins/dsh-pet-remielle/pet-tip.js.
  *
- * 文件用 .cjs：包是 "type":"module"，与 session-order.cjs 同一套加载约定。
+ * The file is .cjs: the package is "type":"module", so it follows the same
+ * loading convention as session-order.cjs.
  */
 ;(function (global) {
   'use strict'
 
   function dotTipText(page) {
-    return page === 0 ? '点击看余额呀~' : '点击回状态呀~'
+    return page === 0 ? 'Click to see the balance~' : 'Click to go back to status~'
   }
 
   function backboardTipText(project, title) {
@@ -19,11 +20,12 @@
     var t = String(title || '').trim()
     if (p) parts.push(p)
     if (t && t !== p) parts.push(t)
-    if (!parts.length) return '点击跳到这里看一下~'
-    return '点击去看 ' + parts.join(' · ') + ' 哦~'
+    if (!parts.length) return 'Click to jump here and take a look~'
+    return 'Click to look at ' + parts.join(' · ') + '~'
   }
 
-  // 让背板的点击目标和提示文字成对更新，并在候选目标稳定后再提交。
+  // Keeps the backboard's click target and tip text paired, and only commits once
+  // the candidate target has settled.
   function createBackboardStabilizer(commit, delay, schedule, cancel) {
     var currentTarget = ''
     var currentTip = ''
@@ -88,17 +90,19 @@
     return true
   }
 
-  // ---- 气泡缩放口径（网页端与桌面端共用，防两端口径漂移）----
-  // 同步模式（bubbleScaleSync !== false）：气泡 zoom = 桌宠 scale × 相对比例；
-  // 固定模式（bubbleScaleSync === false）：气泡 zoom = 固定大小系数。
-  // 字段缺失时回落旧口径（zoom = scale），与 0.3.6 及之前行为一致。
+  // ---- Bubble zoom rules (shared by the web and desktop clients so the two
+  // ends cannot drift apart) ----
+  // Sync mode (bubbleScaleSync !== false): bubble zoom = pet scale × relative ratio;
+  // fixed mode (bubbleScaleSync === false): bubble zoom = a fixed size factor.
+  // A missing field falls back to the old rule (zoom = scale), which matches the
+  // behavior of 0.3.6 and earlier.
   var BUBBLE_ZOOM_MIN = 0.3
   var BUBBLE_ZOOM_MAX = 3
 
   function clampZoom(value) {
     if (!isFinite(value) || value <= 0) return 1
-    // 4 位小数内取整：scale/ratio 步进 0.05，乘积最多 4 位小数，
-    // 同时消掉 1.5×0.8=1.2000000000000002 这类浮点噪声。
+    // Round to 4 decimals: scale/ratio step by 0.05, so the product has at most 4
+    // decimals, and this also wipes out float noise like 1.5×0.8=1.2000000000000002.
     var clamped = Math.min(BUBBLE_ZOOM_MAX, Math.max(BUBBLE_ZOOM_MIN, value))
     return Math.round(clamped * 1e4) / 1e4
   }
@@ -133,7 +137,8 @@
     if (typeof hide === 'function') hide()
   }
 
-  // 先按单行量自然宽，超出可见 maxW 再换行；文案自带换行（审批全文）直接 wrap。
+  // Measure the natural width on one line first, and wrap only when it exceeds the
+  // visible maxW; copy that carries its own newlines (a full approval request) wraps directly.
   function fitTipWrap(petTip, maxW) {
     if (!petTip || !petTip.style) return
     var text = String(petTip.textContent || '')
@@ -151,8 +156,10 @@
     }
   }
 
-  // 网页/桌面同一套钳位：用可见宽度自然展开，再把盒子钳进光晕内（可向空侧偏置）。
-  // 桌面 showPetTip 在首帧后再按 getWorkArea 收紧 L/T/R/B，算法仍走这里。
+  // The web and desktop clients share one clamp: lay the box out at its natural
+  // width inside the visible area, then clamp the box into the halo (it may be
+  // biased toward the roomier side). The desktop showPetTip tightens L/T/R/B
+  // against getWorkArea after the first frame, and still goes through this algorithm.
   function layoutPetTip(petTip, anchor, L, T, R, B) {
     if (!petTip || !anchor) return
     var pad = 24

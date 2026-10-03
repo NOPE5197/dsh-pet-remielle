@@ -90,8 +90,9 @@ export function backendCandidates({ platform = process.platform, cwd = process.c
   }
 
   // --- 2. Bundled vendor runtime (ships with the plugin, resolved per platform/arch) ---
-  // 发现候选一律做完整性校验（issue #24）：exe-only 残缺目录必须跳过，让调用方
-  // 走 ensureElectronRuntime 的自动重装，而不是永远启动残缺运行时。
+  // Discovered candidates are always integrity-checked (issue #24): an exe-only incomplete
+  // directory must be skipped so the caller falls through to the automatic reinstall in
+  // ensureElectronRuntime, instead of forever launching an incomplete runtime.
   const bundledRoot = resolve(here, '..', 'vendor', runtimeTarget(platform, arch).folder)
   const bundled = electronBinaryIn(bundledRoot, platform, arch)
   if (isUsableElectronRoot(bundledRoot, platform)) {
@@ -169,16 +170,18 @@ export class DesktopWindow {
     this.logger = logger
     this.spawnImpl = spawnImpl
     this.onExit = onExit
-    // DSH Desktop 宿主的 desktopBrowserAccess 渲染进程准入头：存在时经 env
-    // 交给 pet-window.cjs 自注入到同源请求（否则宿主未开「浏览器访问」时
-    // 所有请求 403 "forbidden"，桌面窗只见 forbidden 字样）。见该文件注释。
+    // The DSH Desktop host's desktopBrowserAccess renderer admission header: when present it is
+    // handed to pet-window.cjs via env for self-injection into same-origin requests (otherwise
+    // every request gets 403 "forbidden" while the host has "Browser access" off, and the
+    // desktop window only shows the word forbidden). See that file's comments.
     this.rendererHeader = rendererHeader && typeof rendererHeader.name === 'string' && rendererHeader.name
       && typeof rendererHeader.value === 'string' && rendererHeader.value
       ? { name: rendererHeader.name, value: rendererHeader.value }
       : null
-    // 上次关闭时的窗口位置（config.desktopX/desktopY）：有效坐标经 env 传给
-    // pet-window.cjs 建窗即定位。坐标与 bounds API 同空间（见 pet-window.cjs
-    // 顶部 force-device-scale-factor 注释：非 macOS 下为物理像素，macOS 为逻辑点）。
+    // Window position from the last close (config.desktopX/desktopY): valid coordinates are passed
+    // via env to pet-window.cjs, which positions the window at creation. The coordinates share
+    // the bounds API's space (see the force-device-scale-factor comment at the top of
+    // pet-window.cjs: physical pixels on non-macOS, logical points on macOS).
     this.posX = Number.isFinite(Number(posX)) && posX !== null ? Number(posX) : null
     this.posY = Number.isFinite(Number(posY)) && posY !== null ? Number(posY) : null
     this.child = undefined
@@ -197,8 +200,9 @@ export class DesktopWindow {
     }
     const child = this.spawnImpl(this.backend.command, this.backend.args, {
       cwd: dirname(this.backend.command),
-      // pipe 而非 inherit：Electron/Chromium 启动时常往宿主控制台写一个空行。
-      // 有内容的诊断日志仍转发；纯空白块丢掉。
+      // pipe rather than inherit: Electron/Chromium often writes an empty line to the host console
+      // during startup. Diagnostic logs that do carry content are still forwarded; purely blank
+      // chunks are dropped.
       stdio: ['ignore', 'pipe', 'pipe'],
       windowsHide: false,
       env: {
@@ -207,11 +211,12 @@ export class DesktopWindow {
         DSH_PET_URL: this.url + (this.url.includes('?') ? '&' : '?') + 'v=' + this.startNonce,
         DSH_WEB_URL: this.webUrl || new URL('/', this.url).origin,
         DSH_PET_PARENT_PID: String(this.parentPid),
-        // 上次位置持久化：仅在坐标齐全时传入，子进程据此建窗即定位。
+        // Last-position persistence: only passed when both coordinates are present; the child process
+        // positions the window at creation based on them.
         ...(this.posX !== null && this.posY !== null
           ? { DSH_PET_POS_X: String(Math.round(this.posX)), DSH_PET_POS_Y: String(Math.round(this.posY)) }
           : {}),
-        // DSH Desktop 渲染进程准入头（可选，见构造函数注释）。
+        // DSH Desktop renderer admission header (optional, see the constructor comment).
         ...(this.rendererHeader
           ? { DSH_PET_RENDERER_HEADER_NAME: this.rendererHeader.name, DSH_PET_RENDERER_HEADER_VALUE: this.rendererHeader.value }
           : {}),
@@ -222,22 +227,26 @@ export class DesktopWindow {
     const notifyExit = () => {
       if (exitNotified) return
       exitNotified = true
-      // 这个退出回调属于 child。宿主可能已经因为别的原因换上了新进程
-      // （用户重启桌面模式，而本进程的 exit 事件姗姗来迟），此时 this.child
-      // 指向的是**别人**。
+      // This exit callback belongs to child. The host may already have swapped in a new process for
+      // some other reason (the user restarted desktop mode while this process's exit event
+      // arrives late), in which case this.child points at **someone else**.
       //
-      // 上一版对两件事的处理不对称：this.child 的清理有 `=== child` 保护，
-      // onExit 却是无条件调用。宿主侧的 onExit 会把 desktop 引用置空，于是
-      // 「旧进程的迟到退出」抹掉了「正在跑的新进程」——宿主认为没有桌宠窗，
-      // 用户再开一次就出现两个置顶窗，外加一个失去引用的僵尸 electron 进程。
+      // The previous version handled the two things asymmetrically: the cleanup of
+      // this.child had a `=== child` guard while onExit was called unconditionally. The
+      // host-side onExit nulls the desktop reference, so a "late exit of the old process"
+      // would wipe out "the new process that is running" — the host believes there is no pet
+      // window, and opening it once more then yields two always-on-top windows plus a zombie
+      // electron process with no references.
       //
-      // 判 stale 只认「确实有另一个进程顶上」：this.child 已是 undefined 是
-      // stop() 主动停掉的正常路径，那种退出仍要通知 onExit（宿主有别处依赖
-      // 退出回调做收尾），不能一并吞掉。
+      // "stale" is only declared when "another process really has taken over": this.child
+      // already being undefined is the normal path where stop() deliberately stopped it, and
+      // that exit still has to notify onExit (the host relies on the exit callback elsewhere for
+      // cleanup), so it must not be swallowed along with it.
       const superseded = this.child !== undefined && this.child !== child
       if (!superseded) this.child = undefined
-      // 退出原因必须可见：桌面窗进程死得无声会让「位置/启动类」问题完全没法
-      // 排查（DSH Desktop 宿主不转发子进程 stdio 到日志，只有这条能落盘）。
+      // The exit reason must be visible: a desktop window process dying silently makes
+      // "position/startup" problems completely undebuggable (the DSH Desktop host does not
+      // forward the child stdio to the log, and only this line reaches disk).
       const code = child.exitCode
       const signal = child.signalCode
       this.logger.info?.(`dsh-pet-remielle: pet window exited (code=${code === null ? 'signal:' + String(signal) : code}${superseded ? ', superseded by a newer window' : ''})`)
@@ -271,7 +280,8 @@ export class DesktopWindow {
     this.child = undefined
     if (!child || child.exitCode !== null) return Promise.resolve()
     return new Promise((resolve) => {
-      // 兜底定时：万一 kill 失败且 exit 事件不来，也不能把更新流程卡死
+      // Fallback timer: even if kill fails and the exit event never arrives, the update flow
+      // must not get stuck
       const fallback = setTimeout(resolve, 5000)
       if (typeof fallback.unref === 'function') fallback.unref()
       child.once('exit', () => {

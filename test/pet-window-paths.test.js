@@ -8,7 +8,7 @@ import { test } from 'node:test'
 const require = createRequire(import.meta.url)
 const paths = require('../src/pet-window-paths.cjs')
 
-/** 每个用例一个独立临时根目录，结束后整目录删除（只删自己建的那一个）。 */
+/** One independent temporary root directory per case, the whole directory removed afterwards (only the one we created). */
 function withTempRoot(run) {
   const root = mkdtempSync(join(tmpdir(), 'dsh-pet-paths-'))
   try {
@@ -22,7 +22,8 @@ test('directory helpers keep the stable dir and the per-pid fallback side by sid
   const root = join('C:', 'appdata')
   assert.equal(paths.baseDirOf(root), join(root, 'dsh-pet-remielle'))
   assert.equal(paths.fallbackDirOf(root, 4242), `${join(root, 'dsh-pet-remielle')}-4242`)
-  // 占用标记始终落在稳定目录里：退避实例也要靠它判断稳定目录是否有人用。
+  // The occupancy marker always lives in the stable directory: fallback instances rely on it too
+  // to tell whether the stable directory is in use.
   assert.equal(paths.lockPathOf(root), join(root, 'dsh-pet-remielle', 'pet-window.lock'))
 })
 
@@ -46,14 +47,16 @@ test('resolveUserDataDir falls back to a per-pid dir when a live foreign process
   assert.equal(choice.dir, paths.fallbackDirOf(root, 100))
   assert.equal(choice.fallback, true)
   assert.equal(choice.occupantPid, 200)
-  // 退避者不碰稳定目录的标记：那个标记属于稳定目录的主人，覆盖它会让主人
-  // 退出时误判「不是我的」，把坏标记永久留在盘上。
+  // The fallback instance does not touch the stable directory's marker: that marker belongs to
+  // the owner of the stable directory, and overwriting it makes the owner misjudge "it is not
+  // mine" on exit and leave a stale marker on disk permanently.
   assert.equal(choice.ownsLock, false)
 })
 
 test('resolveUserDataDir reuses the stable dir when the recorded pid is dead', () => {
   const root = join('C:', 'appdata')
-  // 崩溃残留：标记还在，但进程已经不在了 → 自愈复用稳定目录，且接管标记。
+  // Crash residue: the marker is still there but the process is gone → self-heal by reusing the
+  // stable directory and taking over the marker.
   const choice = paths.resolveUserDataDir({
     appDataDir: root,
     pid: 100,
@@ -67,7 +70,8 @@ test('resolveUserDataDir reuses the stable dir when the recorded pid is dead', (
 
 test('resolveUserDataDir treats a stale lock written by ourselves as free', () => {
   const root = join('C:', 'appdata')
-  // pid 与自己相同（上次异常退出留下的标记）不算占用：否则每次启动都会换目录。
+  // A pid identical to ours (a marker left by the previous abnormal exit) does not count as
+  // occupied: otherwise every launch would switch directories.
   const choice = paths.resolveUserDataDir({
     appDataDir: root,
     pid: 100,
@@ -87,7 +91,7 @@ test('resolveUserDataDir ignores garbage occupant values', () => {
       occupantPid,
       isAlive: () => true,
     })
-    assert.equal(choice.dir, paths.baseDirOf(root), `occupantPid=${String(occupantPid)} 应视为空闲`)
+    assert.equal(choice.dir, paths.baseDirOf(root), `occupantPid=${String(occupantPid)} should count as idle`)
     assert.equal(choice.ownsLock, true)
   }
 })
@@ -95,12 +99,12 @@ test('resolveUserDataDir ignores garbage occupant values', () => {
 test('readOccupantPid returns null for missing, corrupt or malformed locks', () => {
   withTempRoot((root) => {
     const lock = paths.lockPathOf(root)
-    assert.equal(paths.readOccupantPid(lock), null, '文件不存在应视为空闲')
+    assert.equal(paths.readOccupantPid(lock), null, 'a missing file should count as idle')
     mkdirSync(join(root, 'dsh-pet-remielle'), { recursive: true })
     writeFileSync(lock, 'not json', 'utf8')
-    assert.equal(paths.readOccupantPid(lock), null, 'JSON 损坏应视为空闲')
+    assert.equal(paths.readOccupantPid(lock), null, 'corrupt JSON should count as idle')
     writeFileSync(lock, JSON.stringify({ pid: 'x' }), 'utf8')
-    assert.equal(paths.readOccupantPid(lock), null, 'pid 非法应视为空闲')
+    assert.equal(paths.readOccupantPid(lock), null, 'an invalid pid should count as idle')
     writeFileSync(lock, JSON.stringify({ pid: 321 }), 'utf8')
     assert.equal(paths.readOccupantPid(lock), 321)
   })
@@ -121,12 +125,13 @@ test('releaseLock removes only a lock that still belongs to this pid', () => {
   withTempRoot((root) => {
     const lock = paths.lockPathOf(root)
     paths.writeLock(lock, 777)
-    // 标记已被别的实例接手 → 绝不能删，否则接手者失去互斥保护。
+    // The marker was taken over by another instance → must never be deleted, otherwise the
+    // successor loses its mutual exclusion protection.
     assert.equal(paths.releaseLock(lock, 888), false)
-    assert.equal(paths.readOccupantPid(lock), 777, '非本人标记必须原样保留')
+    assert.equal(paths.readOccupantPid(lock), 777, "someone else's marker must be kept as-is")
     assert.equal(paths.releaseLock(lock, 777), true)
     assert.equal(paths.readOccupantPid(lock), null)
-    // 重复释放是幂等的（文件已经不在了）。
+    // Releasing twice is idempotent (the file is already gone).
     assert.equal(paths.releaseLock(lock, 777), false)
   })
 })

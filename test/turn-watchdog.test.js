@@ -8,7 +8,7 @@ import {
   createTurnWatchdog,
 } from '../src/turn-watchdog.js'
 
-// 与 pet-reducer.test.js 相同的事件构造辅助
+// The same event-construction helper as pet-reducer.test.js
 function session(id = 's1', extra = {}) {
   return { header: { id, ...extra.header }, ...extra }
 }
@@ -17,7 +17,7 @@ function event(type, data = {}, seq = 1) {
   return { type, seq, data }
 }
 
-/** 模拟 index.js 的接线：事件喂 reducer 的同时 feed 看门狗。 */
+/** Simulate index.js's wiring: feed the watchdog while feeding the reducer with events. */
 function drive(reducer, watchdog, sess, events) {
   for (const ev of events) {
     watchdog.feed(sess.header.id)
@@ -25,25 +25,30 @@ function drive(reducer, watchdog, sess, events) {
   }
 }
 
-// 悬挂判定：只看"事件流停住多久"，不看会话在等什么。
-// 正在等回答/审批的会话可以合法等很久，绝不能被误杀。
+// Hang detection looks only at "how long the event stream has been silent", not
+// at what the session is waiting for.
+// A session waiting for an answer or an approval may legitimately wait a long
+// time and must never be killed by mistake.
 test('turn watchdog kills stalled turns but spares sessions waiting on the human', () => {
   assert.equal(TURN_STALL_THRESHOLD_MS, 180_000)
   assert.equal(TURN_WATCHDOG_INTERVAL_MS, 30_000)
 
-  // ① THINKING 卡死：阈值前一拍不命中，到点命中；收尾复用 turn/end{aborted}
+  // ① THINKING stuck: no hit one tick before the threshold, hit at the
+  // threshold; the wrap-up reuses turn/end{aborted}
   const t0 = 1_000_000
   let now = t0
   const stalled = createTurnWatchdog({ now: () => now })
   const reducer = new PetReducer()
   drive(reducer, stalled, session('hung'), [
     event('turn/start'),
-    event('step/start', {}, 2), // 强杀现场：事件流止于 step/start「分析阶段」
+    event('step/start', {}, 2), // the force-kill scene: the event stream stops at step/start "Analyzing"
   ])
   assert.deepEqual(stalled.tick(reducer.states(), t0 + TURN_STALL_THRESHOLD_MS - 1), [])
   assert.deepEqual(stalled.tick(reducer.states(), t0 + TURN_STALL_THRESHOLD_MS), ['hung'])
-  // index.js 的命中处理：end 条目后合成 turn/end{aborted} 复用现有收尾路径，
-  // 不传 seq（record.lastSeq 保持不变；stopped 文案种子经 seedNumber 稳定回落）。
+  // How index.js handles a hit: after ending the entry it synthesizes
+  // turn/end{aborted} and reuses the existing wrap-up path, passing no seq
+  // (record.lastSeq stays unchanged; the stopped copy seed falls back stably
+  // through seedNumber).
   stalled.end('hung')
   const messages = [...reducer.handle(
     { header: { id: 'hung' } },
@@ -51,12 +56,12 @@ test('turn watchdog kills stalled turns but spares sessions waiting on the human
   )]
   const state = messages.filter((m) => m.kind === PetMessageKind.STATE).at(-1)
   assert.equal(state.state, PetState.IDLE)
-  assert.equal(state.stage, '已停止')
-  assert.equal(state.message, '任务已经停下来啦')
-  // 已停止的记录不再出现在牌叠里
+  assert.equal(state.stage, 'Stopped')
+  assert.equal(state.message, 'The task has stopped~')
+  // A stopped record no longer appears in the card deck
   assert.deepEqual(reducer.states(), [])
 
-  // ①b WORKING（摸鱼中卡死）同样判悬挂
+  // ①b WORKING (stuck while slacking) counts as hung too
   let busyNow = 0
   const busy = createTurnWatchdog({ now: () => busyNow })
   const busyReducer = new PetReducer()
@@ -67,7 +72,8 @@ test('turn watchdog kills stalled turns but spares sessions waiting on the human
   busyNow += TURN_STALL_THRESHOLD_MS
   assert.deepEqual(busy.tick(busyReducer.states(), busyNow), ['busy'])
 
-  // ② WAITING（等待回答/审批）超过阈值不误杀
+  // ② WAITING (waiting for an answer / an approval) must not be killed after
+  // exceeding the threshold
   let askNow = 0
   const asking = createTurnWatchdog({ now: () => askNow })
   const askReducer = new PetReducer()
@@ -80,7 +86,7 @@ test('turn watchdog kills stalled turns but spares sessions waiting on the human
   askNow += TURN_STALL_THRESHOLD_MS * 10
   assert.deepEqual(asking.tick(askReducer.states(), askNow), [])
 
-  // ③ turn/end 后条目移除，不再触发
+  // ③ the entry is removed after turn/end and no longer fires
   let doneNow = 0
   const done = createTurnWatchdog({ now: () => doneNow })
   const doneReducer = new PetReducer()
@@ -89,17 +95,18 @@ test('turn watchdog kills stalled turns but spares sessions waiting on the human
     event('step/start', {}, 2),
     event('turn/end', { reason: { kind: 'completed' } }, 3),
   ])
-  done.end('done') // offEvent 在 turn/end 时移除条目
+  done.end('done') // offEvent removes the entry on turn/end
   doneNow += TURN_STALL_THRESHOLD_MS * 10
   assert.deepEqual(done.tick(doneReducer.states(), doneNow), [])
 
-  // ④ 阈值内不触发；持续 feed（正常流式）刷新时间戳，到点才命中
+  // ④ no trigger inside the threshold; continuous feeding (normal streaming)
+  // refreshes the timestamp and only the moment it arrives does it hit
   let liveNow = 0
   const live = createTurnWatchdog({ now: () => liveNow })
   const liveReducer = new PetReducer()
   drive(liveReducer, live, session('live'), [event('turn/start')])
   liveNow += TURN_WATCHDOG_INTERVAL_MS * 5
-  live.feed('live') // 流式期间 chunk 事件频繁，时间戳不断刷新
+  live.feed('live') // chunk events are frequent while streaming, refreshing the timestamp constantly
   liveNow += TURN_STALL_THRESHOLD_MS - 1000
   assert.deepEqual(live.tick(liveReducer.states(), liveNow), [])
   liveNow += 1000

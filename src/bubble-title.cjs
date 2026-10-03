@@ -1,38 +1,49 @@
 /**
- * 气泡会话卡的共享呈现层：标题节流、文字宽度测量，以及审批 / 计划待审 /
- * 完成三种状态的文案、类名与牌叠布局。网页端与桌面端同一份实现——
- * 这层文案一改就必须两端同步，历史上的「计划待审」提示就因此漂移过一次。
+ * Shared presentation layer for bubble session cards: title throttling, text
+ * width measurement, and the copy, class names and card-deck layout for the three
+ * states — approval / plan review / completion. The web and desktop clients share
+ * one implementation: any change to this copy has to land on both ends at once,
+ * which is exactly how the "plan review" tip drifted once (it repeated the
+ * project name).
  * Web: inlined by scripts/build-client.mjs ahead of client.core.js.
  * Desktop: served at /plugins/dsh-pet-remielle/bubble-title.js.
  *
- * 文件用 .cjs：包是 "type":"module"，与 pet-tip.cjs 同一套加载约定。
+ * The file is .cjs: the package is "type":"module", so it follows the same
+ * loading convention as pet-tip.cjs.
  */
 ;(function (global) {
   'use strict'
 
-  // 气泡首行：同贴纸最多每 2s 换一次（0.3.1 锁定，避免 think/干活逐 chunk 翻文案）。
+  // Bubble first line: with the same sticker it changes at most every 2s (locked in
+  // 0.3.1 to stop think/work copy flipping on every chunk).
   var BUBBLE_TITLE_MS = 2000
-  // 气泡框最小宽度：把标题在常见长度内的宽度变化"吸收"掉，避免方框频繁抖动。
+  // Bubble box minimum width: absorbs the width swings a title has at common
+  // lengths, so the box does not jitter constantly.
   var BUBBLE_MIN_W = 277
-  // 牌叠第二层（假背板）上移量：卡片高 91px（CSS 里写死）− 80px = 露出 11px；
-  // 同步缩放模式下 stack 的 zoom = 角色大小，故 75% 档位露出约 8px。
+  // How far the second deck layer (the fake backboard) is lifted: card height 91px
+  // (hard-coded in CSS) − 80px = 11px showing; in sync-scale mode the stack's zoom
+  // = character size, so the 75% notch shows about 8px.
   var STACK_LIFT_PX = 80
-  var PLAN_MARKER = '计划待审'
+  var PLAN_MARKER = 'Plan review'
 
-  // 隐藏测量节点：复制真实渲染字体来精确测量文字宽度，避免 max-content 撑宽。
-  // 模块级懒创建，mountPet 可多次挂载也不会重复往 body 追加节点。
+  // Hidden measuring node: copies the real rendering font to measure text width
+  // precisely, so max-content cannot stretch the box.
+  // Lazily created at module level, so mountPet can mount many times without ever
+  // appending a second node to body.
   var __petMeasureEl = null
   function ensureMeasureEl() {
     if (!__petMeasureEl) {
       __petMeasureEl = document.createElement('span')
       __petMeasureEl.style.cssText = 'position:absolute;left:-9999px;top:0;visibility:hidden;white-space:nowrap;'
     }
-    // 挂载与创建分开判断。旧实现是在 !__petMeasureEl 时无条件 append，body 缺失
-    // 会响亮抛错；改成 `if (document.body)` 之后这次跳过变成永久的——元素已被
-    // 缓存、下次不再重试挂载，measureTextW 的 offsetWidth 恒为 0，所有卡片宽度
-    // 静默塌到 BUBBLE_MIN_W 且无任何报错。改成按 parentNode 补挂载：body 缺失
-    // 时仍不抛错，但 body 一出现就会挂上。用 parentNode 而非 isConnected，
-    // 是因为测试用的 DOM stub 没有 isConnected。
+    // Mounting and creation are checked separately. The old implementation appended
+    // unconditionally whenever !__petMeasureEl, so a missing body threw loudly;
+    // after switching to `if (document.body)` that skip becomes permanent—the
+    // element is already cached and mounting is never retried, so offsetWidth in
+    // measureTextW is always 0, every card width silently collapses to BUBBLE_MIN_W,
+    // and nothing errors. Re-mounting by parentNode instead: still no throw when
+    // body is missing, but it attaches as soon as body shows up. parentNode rather
+    // than isConnected is used because the test DOM stub has no isConnected.
     if (document.body && __petMeasureEl.parentNode !== document.body) document.body.appendChild(__petMeasureEl)
     return __petMeasureEl
   }
@@ -50,8 +61,9 @@
     return el.offsetWidth || 0
   }
 
-  // 两种方框（堆叠对话卡 / 余额气泡）共用同一宽度规则：取"最宽一行" + 内边距，
-  // 下限 BUBBLE_MIN_W、上限 min(440, 视口-24)。返回含内边距的总宽。
+  // Both boxes (the stacked conversation card / the balance bubble) share one width
+  // rule: take the "widest line" + padding, with a BUBBLE_MIN_W floor and a
+  // min(440, viewport-24) ceiling. Returns the total width including padding.
   function bubbleRowWidth(textW) {
     var win = typeof window !== 'undefined' ? window : null
     var vw = Math.max(150, ((win && win.innerWidth) || 1280) - 24)
@@ -77,8 +89,9 @@
     }
   }
 
-  // 贴纸变了，或 WAITING / ERROR / SUCCESS / attention / 完成卡 / 占位卡，
-  // 立即更新；否则等 BUBBLE_TITLE_MS 到期再刷出等待中的 pending。
+  // Update immediately when the sticker changed, or on WAITING / ERROR / SUCCESS /
+  // attention / a completion card / a placeholder card; otherwise wait for
+  // BUBBLE_TITLE_MS to expire before flushing the waiting pending text.
   function applyBubbleTitle(el, entry) {
     var text = entry.message || ''
     var mood = entry.mood || ''
@@ -115,14 +128,15 @@
     }
   }
 
-  // 详情行归一化成单行文本：统一分隔点，display:flex 会让 text-overflow 失效，
-  // 所以渲染时用 block。
+  // Normalize the detail line into single-line text: one shared separator, and it
+  // is rendered as block because display:flex breaks text-overflow.
   function detailShown(detail) {
     return String(detail || '').replace(/^\s*[·•]\s*/, '· ')
   }
 
-  // 详情形如 `<项目> · 计划待审 · <摘要>`：提示里只取标记之后的摘要，
-  // 避免项目名与「计划待审」在气泡提示里重复出现。
+  // A detail looks like `<project> · Plan review · <summary>`: the tip takes only the
+  // summary after the marker, so the project name and "Plan review" do not show up
+  // twice in the bubble tip.
   function planSummaryOf(text) {
     var parts = String(text || '').split(/\s*·\s*/).filter(Boolean)
     var marker = parts.indexOf(PLAN_MARKER)
@@ -153,23 +167,26 @@
       + (view.summaryCount ? ' summary-backboard' : '')
   }
 
-  // 审批卡悬停用第二行全文（工作区 · preview）：气泡宽度会 CSS 省略，自绘
-  // 浮层才能读到请求内容；原生 title 不随 zoom 缩放已废弃；操作说明在勾号
-  // aria-label 里。title 置空避免与自绘浮层双重提示。
+  // Hovering an approval card uses the full second line (workspace · preview): the
+  // bubble width elides it with CSS, so only the self-drawn overlay lets you read the
+  // request; the native title is deprecated because it does not scale with zoom; the
+  // action hint lives in the check mark's aria-label. The title is emptied to avoid
+  // double tooltips with the self-drawn overlay.
   function tipTextOf(view) {
     if (view.idlePlaceholder) return ''
     if (view.approval) return view.detailShown || ''
     if (view.planReview) {
       return view.planSummary
-        ? PLAN_MARKER + '：' + view.planSummary + '，点击打开同意执行/要求修改'
-        : PLAN_MARKER + '，点击打开同意执行/要求修改'
+        ? PLAN_MARKER + ': ' + view.planSummary + ' — click to open Approve / Request changes'
+        : PLAN_MARKER + ' — click to open Approve / Request changes'
     }
-    if (view.completed) return '完成啦~ 点击查看结果哦'
-    if (view.attention) return '轮到你啦，点击跳到这里处理呢'
-    return '点击跳到这里看一下~'
+    if (view.completed) return 'All done~ Click to see the result'
+    if (view.attention) return 'Your turn — click here to handle it'
+    return 'Click to jump here and take a look~'
   }
 
-  // 假背板：固定高度空方框，仅展示 +N；点击由 activate 动态解析第二层。
+  // Fake backboard: a fixed-height empty box that only shows +N; the click target is
+  // resolved dynamically by activate on the second layer.
   function applyBackboardChrome(el, entry, index) {
     el.detail.style.display = 'none'
     el.action.style.display = 'none'
@@ -192,7 +209,8 @@
     el.stackCount.textContent = view.summaryCount ? '+' + view.summaryCount : ''
     el.node.className = classNameOf(view, index)
     el.node.setAttribute('aria-disabled', view.idlePlaceholder ? 'true' : 'false')
-    // 光标策略：点击行为统一为整卡跳转后，工作卡同样可点，仅待机占位卡显示 default。
+    // Cursor policy: once clicking always jumps to the whole card, work cards are
+    // clickable too, and only the idle placeholder card shows default.
     el.node.style.cursor = view.idlePlaceholder ? 'default' : 'pointer'
     el.node.dataset.idlePlaceholder = view.idlePlaceholder ? 'true' : 'false'
     el.node.dataset.rm2Tip = tipTextOf(view)
@@ -201,12 +219,12 @@
       var glyph = view.approval ? '✓' : (view.planReview || view.phase === 'ask') ? '?' : '!'
       if (el.action.textContent !== glyph) el.action.textContent = glyph
       el.action.setAttribute('aria-label', view.approval
-        ? '允许一次，点击直接确认'
-        : view.planReview ? '计划待审，点击打开审核' : '需要处理，点击跳转')
+        ? 'Allow once — click to confirm'
+        : view.planReview ? 'Plan review — click to open the review' : 'Needs attention — click to jump')
     } else if (el.action.firstChild !== el.brandImg) {
       el.action.textContent = ''
       el.action.appendChild(el.brandImg)
-      el.action.setAttribute('aria-label', '蕾米埃尔桌宠')
+      el.action.setAttribute('aria-label', 'Remielle desktop pet')
     }
     // Deck layout: the front card is readable and background cards expose
     // only a shallow lower edge. Visual order is driven by the flex `order`

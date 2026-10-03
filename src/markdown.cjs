@@ -1,15 +1,23 @@
 /**
- * release 说明的 markdown 渲染器（设置页「关于」tab 与一键更新的更新卡共用）。
+ * Markdown renderer for release notes (shared by the settings page "About" tab
+ * and the one-click update's update card).
  *
- * GitHub release body 是 markdown，原先当纯文本 <pre> 展示，标题/列表/链接全糊成一行。
- * 这里实现一个够用的子集：标题、列表、代码块/行内代码、引用、分隔线、粗斜体、删除线、链接。
+ * A GitHub release body is markdown and used to be shown as plain text in a
+ * <pre>, which mashed headings/lists/links into a single line. This implements a
+ * sufficient subset: headings, lists, code blocks / inline code, quotes, thematic
+ * breaks, bold and italic, strikethrough, links.
  *
- * 安全约定：先整体 HTML 转义再做 markdown 变换（转义后的 &lt; 等不会再被二次解释），
- * 链接目标只放行 http(s)/mailto，其余一律置为 '#'——release body 来自远端，不可信任。
+ * Safety contract: escape the whole thing as HTML first and only then apply the
+ * markdown transforms (the escaped &lt; and friends cannot be reinterpreted a
+ * second time); link targets only allow http(s)/mailto and everything else is
+ * forced to '#' — the release body comes from a remote source and cannot be
+ * trusted.
  *
- * 文件用 .cjs：包是 "type":"module"，宿主 ESM 经 createRequire 才能拿到导出；
- * 网页端由 scripts/build-client.mjs 拼在 client.core.js 之前，经 window.__rm2Markdown 取用。
- * 纯函数，无需 DOM 桩即可单测（见 test/markdown.test.js）。
+ * The file uses .cjs: the package is "type":"module", so host ESM can only get
+ * the exports through createRequire; the web client concatenates it before
+ * client.core.js via scripts/build-client.mjs and reaches it through
+ * window.__rm2Markdown. It is pure, so it is unit testable without a DOM stub
+ * (see test/markdown.test.js).
  */
 ;(function (global) {
   'use strict'
@@ -76,8 +84,9 @@
     mdInline: mdInline,
     renderMarkdown: renderMarkdown,
   }
-  // 浏览器 script / 构建拼接里存在 window，不得写 module.exports，否则会盖掉
-  // client bundle 的 module.exports。Node require 无 window，可当 CJS 导出。
+  // There is a window in a browser script / build concatenation, so module.exports
+  // must not be written, or it would overwrite the client bundle's
+  // module.exports. A Node require has no window and can be treated as a CJS export.
   if (typeof module === 'object' && module.exports && typeof window === 'undefined') {
     module.exports = global.__rm2Markdown
   }

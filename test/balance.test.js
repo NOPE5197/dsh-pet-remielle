@@ -1,12 +1,15 @@
 /**
- * 余额 / 今日用量服务（src/balance.js）。
+ * Balance / today's usage service (src/balance.js).
  *
- * 这块此前零测试覆盖，而它是唯一会写用户磁盘文件（记账本）的地方：
- * 余额下降要累计成"今日已用"、跨天要归零并把前一日归档、归档历史上限 30 天——
- * 写坏了表现为"用量一直不对"，且不会报错。
+ * This area used to have zero test coverage, yet it is the only place that writes
+ * files to the user's disk (the usage ledger): a balance drop must accumulate
+ * into "today's usage", a new day must reset it and archive the previous day, and
+ * the archive is capped at 30 days — writing it wrong shows up as "the usage is
+ * never right" with no error at all.
  *
- * 网络出口由 fetchImpl 注入，holidays 的后台刷新也走同一个注入并在 404 时静默，
- * 因此本文件全程不联网。
+ * The network egress is injected through fetchImpl, and the holidays background
+ * refresh goes through the same injection and fails silently on 404, so this
+ * file never touches the network.
  */
 import assert from 'node:assert/strict'
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
@@ -29,7 +32,7 @@ afterEach(() => {
 })
 
 const LEDGER = '.dshp-usage.json'
-// 与 src/balance.js 的 BALANCE_TTL_MS 一致；改那边记得同步这里
+// Matches BALANCE_TTL_MS in src/balance.js; keep both in sync
 const BALANCE_TTL_MS = 25000
 function readLedger(home) {
   return JSON.parse(readFileSync(join(home, LEDGER), 'utf8'))
@@ -48,7 +51,7 @@ function yesterdayKey() {
   return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate())
 }
 
-/** 余额接口的成功响应。 */
+/** A successful balance endpoint response. */
 function okBody(balance) {
   return {
     ok: true,
@@ -58,8 +61,9 @@ function okBody(balance) {
 }
 
 /**
- * fetch 桩。假日日历的后台刷新也走这里，返回 404 让它静默失败，
- * 这样 calls 里只剩余额请求，便于断言缓存与去重。
+ * fetch stub. The holiday calendar's background refresh also goes through here
+ * and gets a 404 so it fails silently, leaving only the balance requests in
+ * calls, which makes caching and dedup easy to assert.
  */
 function fakeFetch(balance) {
   const calls = []
@@ -106,7 +110,8 @@ test('computeTodayCost sums the platform cost buckets and rejects unusable shape
     },
   }
   assert.equal(computeTodayCost(payload), 4)
-  // 非数字 cost 跳过但不把 found 置真——全是非数字时必须回 null（= 取不到），不能回 0
+  // A non-numeric cost is skipped but does not set found — when everything is
+  // non-numeric it must return null (= not obtainable), never 0
   assert.equal(computeTodayCost({ data: { biz_data: { data: [{ series: [{ buckets: [{ cost: 'x' }] }] }] } } }), null)
   assert.equal(computeTodayCost({ data: { biz_data: { data: [] } } }), null)
   assert.equal(computeTodayCost({}), null)
@@ -124,28 +129,28 @@ test('missing credential is reported without touching the network', async () => 
   const result = await svc.getBalance('ledger')
   assert.equal(result.ok, false)
   assert.equal(result.code, 'NO_KEY')
-  assert.equal(fetchImpl.balanceCalls(), 0, '没有凭据就不该发请求')
+  assert.equal(fetchImpl.balanceCalls(), 0, 'no credential means no request should be sent')
 })
 
 test('a 4xx fails fast while a 5xx is retried once', async () => {
   const client = fakeFetch(() => ({ ok: false, status: 401, json: async () => ({}) }))
   const r1 = await service(client).getBalance('ledger')
   assert.equal(r1.ok, false)
-  assert.equal(client.balanceCalls(), 1, '4xx 不该重试')
+  assert.equal(client.balanceCalls(), 1, '4xx must not be retried')
 
   const server = fakeFetch(() => ({ ok: false, status: 503, json: async () => ({}) }))
   const r2 = await service(server).getBalance('ledger')
   assert.equal(r2.ok, false)
-  assert.equal(server.balanceCalls(), 2, '5xx 应重试一次')
-  assert.equal(r2.transient, true, '服务端故障是暂态，可回落旧缓存')
+  assert.equal(server.balanceCalls(), 2, '5xx should be retried once')
+  assert.equal(r2.transient, true, 'a server failure is transient and can fall back to the old cache')
 })
 
 test('an unexpected balance payload shape is flagged, not silently zeroed', async () => {
   const client = fakeFetch(() => ({ ok: true, status: 200, json: async () => ({ balance_infos: [] }) }))
   const result = await service(client).getBalance('ledger')
   assert.equal(result.ok, false)
-  assert.equal(result.code, 'SHAPE', '结构异常要能区分于网络失败')
-  assert.match(result.error, /结构异常/)
+  assert.equal(result.code, 'SHAPE', 'an unexpected shape must be distinguishable from a network failure')
+  assert.match(result.error, /unexpected structure/)
 })
 
 test('ledger mode accumulates the balance drop and ignores top-ups', async () => {
@@ -153,15 +158,15 @@ test('ledger mode accumulates the balance drop and ignores top-ups', async () =>
   let balance = 100
   const svc = service(fakeFetch(() => okBody(balance)), { dshHome: home })
 
-  assert.equal((await svc.getBalance('ledger')).todayUsage, 0, '首次观测只记基线，不算用量')
+  assert.equal((await svc.getBalance('ledger')).todayUsage, 0, 'the first observation only records a baseline and is not usage')
 
   balance = 90
   svc.invalidate()
-  assert.equal((await svc.getBalance('ledger')).todayUsage, 10, '余额降 10 应累计成今日已用 10')
+  assert.equal((await svc.getBalance('ledger')).todayUsage, 10, 'a balance drop of 10 should accumulate into today\'s usage of 10')
 
   balance = 95
   svc.invalidate()
-  assert.equal((await svc.getBalance('ledger')).todayUsage, 10, '充值不是消耗，用量不得下降')
+  assert.equal((await svc.getBalance('ledger')).todayUsage, 10, 'a top-up is not consumption and usage must not decrease')
 
   balance = 80
   svc.invalidate()
@@ -171,16 +176,17 @@ test('ledger mode accumulates the balance drop and ignores top-ups', async () =>
 
 test('a new day resets the counter and archives yesterday', async () => {
   const home = tempHome()
-  // 预置一条「昨天」的记录：跨天分支靠 ledger.date 与今天不同来触发
+  // Pre-seed a "yesterday" record: the new-day branch is triggered by ledger.date
+  // differing from today
   writeLedger(home, { date: yesterdayKey(), lastBalance: 50, todayUsage: 33, history: {} })
   const svc = service(fakeFetch(40), { dshHome: home })
 
   const result = await svc.getBalance('ledger')
-  assert.equal(result.todayUsage, 0, '跨天后今日用量应归零')
+  assert.equal(result.todayUsage, 0, 'today\'s usage should reset to zero on a new day')
   const ledger = readLedger(home)
   assert.equal(ledger.date, todayKey())
-  assert.equal(ledger.lastBalance, 40, '今天的第一笔余额作为新基线')
-  assert.equal(ledger.history[yesterdayKey()], 33, '昨天的用量要归档进 history')
+  assert.equal(ledger.lastBalance, 40, "today's first balance becomes the new baseline")
+  assert.equal(ledger.history[yesterdayKey()], 33, "yesterday's usage must be archived into history")
 })
 
 test('the archive keeps only the most recent 30 days', async () => {
@@ -190,8 +196,8 @@ test('the archive keeps only the most recent 30 days', async () => {
   writeLedger(home, { date: yesterdayKey(), lastBalance: 10, todayUsage: 5, history })
   await service(fakeFetch(10), { dshHome: home }).getBalance('ledger')
   const kept = Object.keys(readLedger(home).history)
-  assert.ok(kept.length <= 31, `归档应被裁到 30 天左右，实际 ${kept.length}`)
-  assert.equal(kept.includes('2000-01-01'), false, '最旧的一天应被淘汰')
+  assert.ok(kept.length <= 31, `the archive should be trimmed to about 30 days, actually ${kept.length}`)
+  assert.equal(kept.includes('2000-01-01'), false, 'the oldest day should be evicted')
 })
 
 test('getBalance caches for the TTL and de-duplicates concurrent calls', async () => {
@@ -200,11 +206,11 @@ test('getBalance caches for the TTL and de-duplicates concurrent calls', async (
 
   await svc.getBalance('ledger')
   await svc.getBalance('ledger')
-  assert.equal(client.balanceCalls(), 1, 'TTL 内的第二次调用应命中缓存')
+  assert.equal(client.balanceCalls(), 1, 'a second call inside the TTL should hit the cache')
 
   const [a, b] = await Promise.all([svc.getBalance('ledger'), svc.getBalance('ledger')])
-  assert.equal(client.balanceCalls(), 1, '并发调用应合并成一次请求')
-  assert.deepEqual(a, b, '并发拿到的是同一个结果')
+  assert.equal(client.balanceCalls(), 1, 'concurrent calls should collapse into one request')
+  assert.deepEqual(a, b, 'concurrent callers get the same result')
 })
 
 test('invalidate forces the next read to recompute', async () => {
@@ -219,7 +225,8 @@ test('invalidate forces the next read to recompute', async () => {
 test('a transient failure keeps serving the last known balance, flagged stale', async () => {
   let healthy = true
   const client = fakeFetch(() => (healthy ? okBody(64) : { ok: false, status: 500, json: async () => ({}) }))
-  // 可推进的时钟：stale 回落只在 TTL 自然过期后才可达（invalidate 会把缓存整个丢掉）
+  // An advanceable clock: the stale fallback is only reachable after the TTL
+  // expires naturally (invalidate drops the cache entirely)
   let clock = 1_000_000
   const svc = service(client, { now: () => clock })
 
@@ -227,25 +234,28 @@ test('a transient failure keeps serving the last known balance, flagged stale', 
   assert.equal(first.totalBalance, 64)
   assert.equal(first.stale, undefined)
 
-  // 仍在 TTL 内：直接吃缓存，连请求都不发
+  // Still inside the TTL: the cache is used directly and not even a request is sent
   clock += BALANCE_TTL_MS - 1
   assert.equal((await svc.getBalance('ledger')).totalBalance, 64)
   assert.equal(client.balanceCalls(), 1)
 
-  // TTL 过期后服务端故障：不得把已知余额清空，但必须标记为陈旧
+  // After the TTL expires with a failing server: the known balance must not be
+  // cleared, but it must be flagged as stale
   healthy = false
   clock += 2
   const second = await svc.getBalance('ledger')
-  assert.equal(second.totalBalance, 64, '暂态故障不得把已知余额清空')
-  assert.equal(second.stale, true, '但必须标记为陈旧，让调用方能提示用户')
-  assert.ok(second.error, '应带上失败原因')
-  assert.equal(client.balanceCalls(), 3, '5xx 会重试一次，两次都算这次请求')
+  assert.equal(second.totalBalance, 64, 'a transient failure must not clear the known balance')
+  assert.equal(second.stale, true, 'but it must be flagged as stale so the caller can warn the user')
+  assert.ok(second.error, 'it should carry the failure reason')
+  assert.equal(client.balanceCalls(), 3, 'a 5xx is retried once and both attempts count as this request')
 })
 
 test('invalidate drops the stale fallback along with the cache', async () => {
-  // 记录当前行为：invalidate 的用途是 usageMode 变化时强制重算，它把缓存整个丢掉，
-  // 于是紧随其后的暂态故障没有可回落的旧余额。切模式时这正是想要的，但读代码的人
-  // 容易以为它保留旧值兜底，故钉住现状。
+  // Record the current behaviour: invalidate exists to force a recompute when the
+  // usageMode changes and drops the cache entirely, so a transient failure right
+  // after it has no old balance to fall back to. That is exactly what you want when
+  // switching modes, but a reader can easily assume it keeps the old value as a
+  // fallback, so the status quo is pinned.
   let healthy = true
   const client = fakeFetch(() => (healthy ? okBody(64) : { ok: false, status: 500, json: async () => ({}) }))
   const svc = service(client)
@@ -254,7 +264,7 @@ test('invalidate drops the stale fallback along with the cache', async () => {
   healthy = false
   svc.invalidate()
   const result = await svc.getBalance('ledger')
-  assert.equal(result.ok, false, 'invalidate 后失败就是失败，不回落')
+  assert.equal(result.ok, false, 'failing after invalidate is a failure with no fallback')
   assert.equal(result.stale, undefined)
 })
 
@@ -270,13 +280,14 @@ test('token mode strips a Bearer prefix and falls back to ledger when the platfo
   const svc = service(fetchImpl, { dshHome: home, getPlatformToken: () => 'Bearer secret-token' })
 
   const result = await svc.getBalance('token')
-  // 平台接口 403 → 回落到记账模式，而不是把余额页显示成「取不到用量」
+  // The platform API answers 403 → fall back to ledger mode instead of showing the
+  // balance page as "usage unavailable"
   assert.equal(result.usageMode, 'ledger')
-  assert.equal(result.todayUsage, 0, '回落时应给出记账模式的当日用量')
-  assert.ok(urls.some((u) => u.includes('/api/v0/usage/by_api_key/cost')), '应真的尝试过平台接口')
+  assert.equal(result.todayUsage, 0, 'the fallback should report ledger mode\'s usage for the day')
+  assert.ok(urls.some((u) => u.includes('/api/v0/usage/by_api_key/cost')), 'the platform API really should have been tried')
 
   const usageUrl = urls.find((u) => u.includes('by_api_key/cost'))
-  assert.ok(usageUrl.includes('start=') && usageUrl.includes('end=') && usageUrl.includes('tz='), '平台接口需要当天起止时间与时区')
+  assert.ok(usageUrl.includes('start=') && usageUrl.includes('end=') && usageUrl.includes('tz='), 'the platform API needs the day start/end times and the timezone')
 })
 
 test('a platform cost payload is adopted as today usage in token mode', async () => {

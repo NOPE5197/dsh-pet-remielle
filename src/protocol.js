@@ -19,7 +19,7 @@ export const PetState = Object.freeze({
   DISCONNECTED: 'DISCONNECTED',
 })
 
-/** Remielle sticker moods: 01 绘制中 02 摸鱼中 03 得意中 04 思考中 05 等待中 06 待机中. */
+/** Remielle sticker moods: 01 Drawing 02 Slacking 03 Pleased 04 Thinking 05 Waiting 06 Idle. */
 export const PetMood = Object.freeze({
   OUTPUT: '01',
   TOOL: '02',

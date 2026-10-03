@@ -27,6 +27,8 @@ test('isValidPetId accepts safe directory names', () => {
 })
 
 test('isValidPetId rejects traversal and unsafe names', () => {
+  // '宠物' stays non-ASCII on purpose: it proves the pattern rejects any id
+  // outside [A-Za-z0-9_-], not just ASCII punctuation.
   for (const id of ['', '..', '../x', 'a/b', 'a\\b', '.hidden', 'a b', '宠物', 'a.b', '-lead', '_lead']) {
     assert.equal(isValidPetId(id), false, `expected ${JSON.stringify(id)} to be invalid`)
   }
@@ -38,16 +40,16 @@ test('isValidMood accepts the six sticker slots only', () => {
 })
 
 test('upsertPet appends unknown ids and updates known ones in place', () => {
-  const base = [{ id: 'remielle', name: '蕾米埃尔', enabled: true }]
-  const added = upsertPet(base, { id: 'cirno', name: '琪露诺' })
+  const base = [{ id: 'remielle', name: 'Remielle', enabled: true }]
+  const added = upsertPet(base, { id: 'cirno', name: 'Cirno' })
   assert.deepEqual(added.map((p) => p.id), ['remielle', 'cirno'])
   assert.equal(added[1].enabled, undefined)
 
-  const updated = upsertPet(base, { id: 'remielle', name: '蕾米', enabled: false })
+  const updated = upsertPet(base, { id: 'remielle', name: 'Remi', enabled: false })
   assert.equal(updated.length, 1)
-  assert.equal(updated[0].name, '蕾米')
+  assert.equal(updated[0].name, 'Remi')
   assert.equal(updated[0].enabled, false)
-  assert.equal(base[0].name, '蕾米埃尔') // immutable
+  assert.equal(base[0].name, 'Remielle') // immutable
 
   assert.throws(() => upsertPet(base, { id: '../evil' }), /invalid pet id/)
 })
@@ -60,8 +62,8 @@ test('buildRegistry merges discovered dirs with configured pets', () => {
       ['koishi', ['01.gif', '02.gif']], // incomplete
     ]),
     [
-      { id: 'remielle', name: '蕾米埃尔', enabled: true },
-      { id: 'koishi', name: '古明地恋', enabled: true },
+      { id: 'remielle', name: 'Remielle', enabled: true },
+      { id: 'koishi', name: 'Koishi', enabled: true },
     ],
     'remielle',
   )
@@ -69,7 +71,7 @@ test('buildRegistry merges discovered dirs with configured pets', () => {
   assert.deepEqual(view.pets.map((p) => p.id), ['remielle', 'cirno', 'koishi'])
 
   const remielle = view.pets[0]
-  assert.equal(remielle.name, '蕾米埃尔')
+  assert.equal(remielle.name, 'Remielle')
   assert.equal(remielle.enabled, true)
   assert.equal(remielle.complete, true)
   assert.equal(remielle.available, true)
@@ -91,8 +93,8 @@ test('buildRegistry keeps configured pets whose dir vanished, marked unavailable
   const view = buildRegistry(
     discovered([['remielle', fullGifs]]),
     [
-      { id: 'remielle', name: '蕾米埃尔', enabled: true },
-      { id: 'cirno', name: '琪露诺', enabled: true },
+      { id: 'remielle', name: 'Remielle', enabled: true },
+      { id: 'cirno', name: 'Cirno', enabled: true },
     ],
     'remielle',
   )
@@ -201,7 +203,7 @@ test('parsePetManifest extracts pics count, tolerates garbage', () => {
 test('buildRegistry carries pics from the manifest', () => {
   const registry = buildRegistry([
     { id: 'xiaoleimi', gifs: [...fullGifs, '07.gif'], manifest: { pics: 15 } },
-  ], [{ id: 'xiaoleimi', name: '小蕾米', enabled: true }], 'xiaoleimi')
+  ], [{ id: 'xiaoleimi', name: 'Little Remielle', enabled: true }], 'xiaoleimi')
   assert.equal(registry.activePetId, 'xiaoleimi')
   const pet = registry.pets[0]
   assert.equal(pet.pics, 15)

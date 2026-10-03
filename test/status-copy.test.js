@@ -26,8 +26,16 @@ test('activityCopy maps activities', () => {
 })
 
 test('taskCopy formats task text', () => {
-  assert.match(taskCopy('完善项目文档'), /^正在处理「完善项目文档」呢$/)
-  assert.match(taskCopy('修改登录逻辑'), /^正在修改登录逻辑呢$/)
+  assert.match(taskCopy('完善项目文档'), /^Working on "完善项目文档"~$/)
+  assert.match(taskCopy('修改登录逻辑'), /^修改登录逻辑…~$/)
   assert.equal(taskCopy(''), statusCopy('working', 0))
-  assert.match(taskCopy('继续完成剩余部分'), /继续完成剩余部分呢/)
+  assert.match(taskCopy('继续完成剩余部分'), /继续完成剩余部分~$/)
+})
+
+// DSH session/task titles may arrive in English, so taskCopy has to recognise the
+// English phrasing shapes too — not just the Chinese ones.
+test('taskCopy formats English task text', () => {
+  assert.match(taskCopy('Improve the project docs'), /^Working on "Improve the project docs"~$/)
+  assert.match(taskCopy('Fix the login logic'), /^Fix the login logic…~$/)
+  assert.match(taskCopy('working on the docs'), /^working on the docs~$/)
 })

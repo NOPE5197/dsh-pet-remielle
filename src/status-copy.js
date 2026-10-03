@@ -4,82 +4,82 @@
 
 const COPY = Object.freeze({
   idle: [
-    '待机中哦，有任务记得叫我呀',
-    '现在没有任务，我先眯一会儿',
-    '蕾米埃尔待机中~',
+    'Idling~ ping me if a task shows up',
+    'No tasks right now, just a quick nap',
+    'Remielle is idling~',
   ],
   preparing: [
-    '新任务来了，先梳理一下呢',
-    '让我看看这次要做什么呀',
-    '正在整理任务清单呢',
+    'New task in~ let me sort it out first',
+    'Let me see what this one needs~',
+    'Listing out the task list now',
   ],
   thinking: [
-    '正在认真思考下一步呢',
-    '让我想想最优解是什么',
-    '思路整理中，稍等片刻~',
+    'Thinking hard about the next step',
+    'Let me find the very best answer',
+    'Putting it together, one moment~',
   ],
   streaming: [
-    '正在输出回答哦',
-    '内容正在写出来呢',
-    '这句话马上就好~',
+    'Writing the answer out now~',
+    'The words are coming out~',
+    'This sentence is nearly done~',
   ],
   searching: [
-    '正在帮你翻找相关内容呢',
-    '正在项目里搜索呢',
-    '正在查看相关文件哦',
+    'Digging up the relevant bits for you',
+    'Searching the project right now',
+    'Taking a look at the related files~',
   ],
   editing: [
-    '正在修改这部分内容呢',
-    '改动正在写入哦',
-    '正在认真调整实现呢',
+    'Editing this part right now',
+    'Writing the changes in~',
+    'Tuning the implementation properly',
   ],
   testing: [
-    '正在检查结果呢',
-    '正在跑测试确认一下哦',
-    '正在验证改动有没有问题呢',
+    'Checking the results now~',
+    'Running the tests to be sure',
+    'Verifying nothing broke~',
   ],
   commanding: [
-    '正在执行命令呢',
-    '正在让项目跑起来哦',
-    '正在看命令执行得怎么样呢',
+    'Running the command now~',
+    'Getting the project running~',
+    'Watching how that command fares',
   ],
   working: [
-    '正在继续处理任务呢',
-    '这一步正在进行中哦',
-    '蕾米埃尔还在认真干活呢',
+    'Still working on the task~',
+    'This step is underway~',
+    'Remielle is still working hard~',
   ],
   result: [
-    '正在整理刚才的结果呢',
-    '这一步处理好了，继续哦',
-    '正在确认下一步怎么做呢',
+    'Sorting out that result~',
+    'That step is done, moving on~',
+    'Figuring out the next step now',
   ],
   waiting: [
-    '需要你确认一下哦',
-    '这里要等你看一眼呢',
-    '轮到你来决定啦',
+    'Need you to confirm something~',
+    'This one waits for your eyes',
+    'Your call this time~',
   ],
   success: [
-    '这次任务搞定啦~',
-    '这一轮顺利完成哦',
-    '任务完成咯，干得漂亮',
+    'That task is done~',
+    'This round went smoothly~',
+    'Job finished, not bad~',
   ],
   toolError: [
-    '这一步好像没跑通呢',
-    '刚才的操作遇到点问题哦',
-    '这里卡了一下，我在看着呢',
+    'That step did not go through',
+    'The last operation hit a snag',
+    'That one got stuck — I am watching',
   ],
   error: [
-    '任务好像遇到问题了哦',
-    '这里需要回来看看呢',
-    '这次没有顺利跑完呢',
+    'This task seems to be in trouble',
+    'We need to come back and look here',
+    'That one did not finish cleanly',
   ],
   stopped: [
-    '任务已经停下来啦',
-    '这次任务先停在这里哦',
+    'The task has stopped~',
+    'Parking this task here for now',
   ],
   limit: [
-    '内容有点多，到上限啦',
-    '这次输出已经到上限咯',
+    'That is a lot — hit the limit~',
+    'This output hit the cap~',
   ],
 })
 
@@ -105,23 +105,26 @@ export function activityCopy(activity, seed = 0) {
 
 export function activityStage(activity) {
   return {
-    searching: '查找阶段',
-    editing: '实现阶段',
-    testing: '验证阶段',
-    commanding: '执行阶段',
-  }[activity] ?? '处理阶段'
+    searching: 'Searching',
+    editing: 'Implementing',
+    testing: 'Verifying',
+    commanding: 'Executing',
+  }[activity] ?? 'Handling'
 }
 
 export function taskCopy(task) {
   const value = String(task ?? '').trim().replace(/[。！？.!?]+$/u, '')
   if (!value) return statusCopy('working')
-  if (/^(正在|继续)/u.test(value)) {
-    return `${value}呢`
+  // Session/task titles may arrive in Chinese or English, so both vocabularies are
+  // matched here: Chinese is kept because the incoming data may be Chinese, and the
+  // English verbs are its equivalent for the same two phrasing shapes.
+  if (/^(正在|继续|working on|continue|continuing|resuming)/iu.test(value)) {
+    return `${value}~`
   }
-  if (/^(准备|检查|验证|修改|修复|测试|构建|整理|分析|梳理|查找|搜索|读取|实现)/u.test(value)) {
-    return `正在${value}呢`
+  if (/^(准备|检查|验证|修改|修复|测试|构建|整理|分析|梳理|查找|搜索|读取|实现|preparing|prepare|checking|check|verifying|verify|updating|update|fixing|fix|testing|test|building|build|organizing|sorting|analyzing|analyze|searching|search|looking up|reading|read|implementing|implement|refactoring|refactor|rewriting|rewrite)/iu.test(value)) {
+    return `${value}…~`
   }
-  return `正在处理「${value}」呢`
+  return `Working on "${value}"~`
 }
 
 export { COPY as statusCopyLibrary }

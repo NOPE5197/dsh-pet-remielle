@@ -9,13 +9,13 @@ test('completion card waits for confirmed selection before acknowledgement', asy
       sessionId: 'completion:done',
       targetSessionId: 'done',
       state: 'SUCCESS',
-      message: '任务已完成',
-      detail: '结果',
+      message: 'Task complete',
+      detail: 'Result',
       completed: true,
       completionNotification: true,
     }],
   })
-  harness.click(harness.card('任务已完成'))
+  harness.click(harness.card('Task complete'))
   assert.deepEqual(harness.opened, ['done'])
   assert.equal(harness.fetches.some(({ url }) => String(url).endsWith('/completion/ack')), false)
   harness.select('done')
@@ -23,31 +23,33 @@ test('completion card waits for confirmed selection before acknowledgement', asy
   assert.ok(harness.fetches.some(({ url, options }) => String(url).endsWith('/completion/ack') && options.body === JSON.stringify({ sessionId: 'done' })))
 })
 
-// 「当前会话 vs 后台会话」的卡片去留规则：正在看的 ERROR 直接撤掉，后台的
-// ERROR / WAITING 保持 attention 直到那个会话被打开。
+// Keep/drop rules for "current session vs background session" cards: an ERROR on the session
+// being viewed is dropped right away, while a background ERROR / WAITING keeps its attention
+// state until that session is opened.
 test('cards of the viewed session are dropped while background cards stay in attention', () => {
   const error = {
     sessionId: 'err',
     state: 'ERROR',
-    message: '任务好像遇到问题了哦',
-    detail: 'dsh-pet-remielle · 需要处理',
+    message: 'That task hit a snag~',
+    detail: 'dsh-pet-remielle · Needs attention',
     attention: true,
     updatedAt: 1,
   }
   const viewed = createHarness('err')
-  viewed.send({ ...base, message: '蕾米埃尔待机中~', sessions: [error] })
+  viewed.send({ ...base, message: 'Remielle is idling~', sessions: [error] })
   assert.equal(
-    viewed.elements.some((node) => node.className === 'rm2-pet-bubble-title' && node.textContent === '任务好像遇到问题了哦'),
+    viewed.elements.some((node) => node.className === 'rm2-pet-bubble-title' && node.textContent === 'That task hit a snag~'),
     false,
-    '正在看的会话不该再顶一张 ERROR 卡',
+    'the session being viewed must no longer have an ERROR card on top',
   )
 
   const background = createHarness('other')
   background.send({ ...base, sessions: [error] })
-  const errorCard = background.card('任务好像遇到问题了哦')
+  const errorCard = background.card('That task hit a snag~')
   assert.ok(errorCard.className.includes('attention'))
   background.select('err')
-  // 节点可能仍留在 harness.elements 里，但已从牌叠父节点卸下。
+  // The node may still be in harness.elements, but it has been detached from the deck's
+  // parent node.
   assert.equal(errorCard.parentNode.children.includes(errorCard), false)
 })
 
@@ -59,8 +61,8 @@ test('a visible but unfocused window waits to acknowledge until focus returns', 
       sessionId: 'completion:watched',
       targetSessionId: 'watched',
       state: 'SUCCESS',
-      message: '任务已完成',
-      detail: '结果',
+      message: 'Task complete',
+      detail: 'Result',
       completed: true,
       completionNotification: true,
     }],
@@ -83,8 +85,8 @@ test('an older host without layout still auto-acknowledges a foreground completi
       sessionId: 'completion:watched',
       targetSessionId: 'watched',
       state: 'SUCCESS',
-      message: '任务已完成',
-      detail: '结果',
+      message: 'Task complete',
+      detail: 'Result',
       completed: true,
       completionNotification: true,
     }],
@@ -102,14 +104,14 @@ test('background waiting card stays in attention', () => {
       sessionId: 'ask',
       state: 'WAITING',
       phase: 'ask',
-      message: '需要你确认一下哦',
-      detail: '等待回答',
+      message: 'Need you to confirm something~',
+      detail: 'Waiting for answer',
       ask: true,
       attention: true,
       updatedAt: 1,
     }],
   })
-  assert.ok(harness.card('需要你确认一下哦').className.includes('attention'), '提问卡必须留在首位')
+  assert.ok(harness.card('Need you to confirm something~').className.includes('attention'), 'the question card must stay on top')
 })
 
 test('plan review card renders with its own tooltip and opens without auto-approving', () => {
@@ -120,21 +122,22 @@ test('plan review card renders with its own tooltip and opens without auto-appro
       sessionId: 'plan',
       state: 'WAITING',
       phase: 'plan-review',
-      message: '计划待审',
-      detail: 'dsh-pet-remielle · 计划待审 · 推理面板改材质',
+      message: 'Plan review',
+      detail: 'dsh-pet-remielle · Plan review · Swapping the reasoning panel material',
       planReview: true,
       attention: true,
       updatedAt: 1,
     }],
   })
-  const card = harness.card('计划待审')
-  // 计划待审没有专属类名：approval / plan-review 两个 token 两端都没有 CSS 规则
-  // 消费，已从 classNameOf 移除。它靠 attention 样式 + 自己的提示文案 + 「不自动
-  // 点允许一次」与审批卡区分。
+  const card = harness.card('Plan review')
+  // Plan review has no dedicated class name: neither the approval nor the plan-review token
+  // has a CSS rule consuming it on either client, so it was removed from classNameOf. It is
+  // distinguished from the approval card by the attention styling, its own tooltip copy and
+  // "does not click allow-once by itself".
   assert.equal(card.className.includes('attention'), true)
   assert.equal(card.className.includes('approval'), false)
-  assert.equal(card.className.includes('plan-review'), false, 'plan-review 类名无样式消费，不得回归')
-  assert.match(card.dataset.rm2Tip, /计划待审：推理面板改材质，点击打开同意执行\/要求修改/)
+  assert.equal(card.className.includes('plan-review'), false, 'the plan-review class name has no styling consumer and must not come back')
+  assert.match(card.dataset.rm2Tip, /Plan review: Swapping the reasoning panel material — click to open Approve \/ Request changes/)
   harness.click(card)
   assert.deepEqual(harness.opened, ['plan'])
   assert.equal(harness.allowClicks.length, 0)
@@ -148,8 +151,8 @@ test('current conversation completion is acknowledged without a green reminder',
       sessionId: 'done',
       targetSessionId: 'done',
       state: 'SUCCESS',
-      message: '任务已完成',
-      detail: '结果',
+      message: 'Task complete',
+      detail: 'Result',
       completed: true,
       completionNotification: true,
       pulseUntil: Date.now() + 5000,
@@ -157,13 +160,14 @@ test('current conversation completion is acknowledged without a green reminder',
   })
   await Promise.resolve()
   assert.ok(harness.fetches.some(({ url }) => String(url).endsWith('/completion/ack')))
-  assert.equal(harness.card('任务已完成').className.includes(' completed'), false)
+  assert.equal(harness.card('Task complete').className.includes(' completed'), false)
 })
 
-// 只有前台标签页在"看着"当前会话时才能自动确认完成提醒；桌面窗开着不算，
-// 隐藏标签页也不算——否则完成卡会在用户根本没看的时候消失。
+// Only a foreground tab that is "watching" the current session may auto-acknowledge a
+// completion reminder; having the desktop window open does not count, and neither does a
+// hidden tab — otherwise completion cards would vanish while the user was not looking.
 test('completion is auto-acknowledged only by a foreground tab viewing that session', async () => {
-  for (const [label, desktopActive] of [['普通标签页', false], ['桌面窗在场', true]]) {
+  for (const [label, desktopActive] of [['a normal tab', false], ['the desktop window present', true]]) {
     const harness = createHarness('watched')
     harness.setVisibility('hidden')
     const completed = {
@@ -173,8 +177,8 @@ test('completion is auto-acknowledged only by a foreground tab viewing that sess
         sessionId: 'completion:watched',
         targetSessionId: 'watched',
         state: 'SUCCESS',
-        message: '任务已完成',
-        detail: '结果',
+        message: 'Task complete',
+        detail: 'Result',
         completed: true,
         completionNotification: true,
       }],
@@ -184,24 +188,25 @@ test('completion is auto-acknowledged only by a foreground tab viewing that sess
     assert.equal(
       harness.fetches.some(({ url }) => String(url).endsWith('/completion/ack')),
       false,
-      `${label}：隐藏标签页不得自动确认`,
+      `${label}: a hidden tab must not auto-acknowledge`,
     )
-    // 提醒确实还挂在牌叠上；桌面窗在场时网页端不再重复渲染这张卡（由桌宠窗口显示），
-    // 但同样不得自动确认。
-    if (!desktopActive) harness.card('任务已完成')
+    // The reminder really is still on the deck; with the desktop window present the web
+    // client no longer renders this card again (the desktop pet window shows it), but it
+    // still must not auto-acknowledge.
+    if (!desktopActive) harness.card('Task complete')
 
     harness.setVisibility('visible')
     harness.send(completed)
     await Promise.resolve()
     assert.ok(
       harness.fetches.some(({ url, options }) => String(url).endsWith('/completion/ack') && options.body === JSON.stringify({ sessionId: 'watched' })),
-      `${label}：切回可见标签页后才自动确认`,
+      `${label}: auto-acknowledged only after switching back to a visible tab`,
     )
   }
 })
 
-// 标题节流：同一贴纸的逐 chunk 文案要按住不动（否则每 chunk 翻一次），
-// 换贴纸则立即更新。
+// Title throttling: the chunk-by-chunk copy for the same sticker must stay put (otherwise it
+// would flip on every chunk), while a sticker change updates immediately.
 test('bubble title holds while the mood is unchanged and updates when it changes', () => {
   const held = createHarness('s1')
   const thinking = (message) => ({
@@ -210,18 +215,18 @@ test('bubble title holds while the mood is unchanged and updates when it changes
     mood: '04',
     phase: 'think',
     message,
-    detail: '.dsh · 推理阶段',
+    detail: '.dsh · Reasoning',
     updatedAt: 2,
   })
-  held.send({ ...base, sessions: [thinking('让我想想最优解是什么')] })
-  held.send({ ...base, sessions: [thinking('思路整理中，稍等片刻~')] })
-  held.card('让我想想最优解是什么')
-  assert.equal(held.elements.some((node) => node.className === 'rm2-pet-bubble-title' && node.textContent === '思路整理中，稍等片刻~'), false)
+  held.send({ ...base, sessions: [thinking('Let me think about the best solution')] })
+  held.send({ ...base, sessions: [thinking('Putting the ideas together, one moment~')] })
+  held.card('Let me think about the best solution')
+  assert.equal(held.elements.some((node) => node.className === 'rm2-pet-bubble-title' && node.textContent === 'Putting the ideas together, one moment~'), false)
   held.flushTitleTimers()
-  held.card('思路整理中，稍等片刻~')
+  held.card('Putting the ideas together, one moment~')
 
   const swapped = createHarness('s1')
-  swapped.send({ ...base, sessions: [thinking('让我想想最优解是什么')] })
+  swapped.send({ ...base, sessions: [thinking('Let me think about the best solution')] })
   swapped.send({
     ...base,
     sessions: [{
@@ -229,12 +234,12 @@ test('bubble title holds while the mood is unchanged and updates when it changes
       state: 'WORKING',
       mood: '02',
       phase: 'tool-call',
-      message: '正在修改这部分内容呢',
-      detail: '.dsh · 实现阶段',
+      message: 'Editing this part right now',
+      detail: '.dsh · Executing',
       updatedAt: 3,
     }],
   })
-  swapped.card('正在修改这部分内容呢')
+  swapped.card('Editing this part right now')
 })
 
 test('expired reminder for the current conversation disappears immediately', async () => {
@@ -245,15 +250,15 @@ test('expired reminder for the current conversation disappears immediately', asy
       sessionId: 'completion:done',
       targetSessionId: 'done',
       state: 'SUCCESS',
-      message: '任务已完成',
-      detail: '结果',
+      message: 'Task complete',
+      detail: 'Result',
       completed: true,
       completionNotification: true,
     }],
   })
   await Promise.resolve()
   assert.ok(harness.fetches.some(({ url }) => String(url).endsWith('/completion/ack')))
-  assert.equal(harness.elements.some((node) => node.className === 'rm2-pet-bubble-title' && node.textContent === '任务已完成'), false)
+  assert.equal(harness.elements.some((node) => node.className === 'rm2-pet-bubble-title' && node.textContent === 'Task complete'), false)
 })
 
 test('desktop approval clicks only the panel inside the current DSH conversation root', () => {
@@ -265,58 +270,61 @@ test('desktop approval clicks only the panel inside the current DSH conversation
   assert.deepEqual(harness.allowClicks, ['allow'])
 })
 
-// approvalPanels 的 document 级兜底分支：页面没有 [data-conversation-session]
-// 作用域（旧宿主）时，只有恰好一个审批面板才自动点「允许一次」——页面上同时有多个
-// 审批面板就宁可不动，点错对话的审批比不点更糟。这条闸门此前在测试里从未被走到
-// （harness 恒提供作用域，document 级分支是死代码）。
+// The document-level fallback branch of approvalPanels: when the page has no
+// [data-conversation-session] scope (old hosts), only exactly one approval panel is
+// auto-clicked for allow-once — with several approval panels on the page it prefers to do
+// nothing, because clicking the wrong conversation's approval is worse than not clicking.
+// This gate was never reached by the tests before (the harness always provides a scope, so
+// the document-level branch was dead code).
 test('unscoped page refuses auto allow-once unless exactly one panel exists', () => {
   const single = createHarness('other', true, [], true)
   single.setApprovalDom({ scopedRoots: [], loosePanels: [single.panel] })
   single.send({ ...base, desktopActive: true, sessions: [] })
   single.send({ kind: 'session-action', sessionId: 'desk-2', approve: true })
   single.flushTitleTimers()
-  assert.deepEqual(single.allowClicks, ['allow'], '唯一面板时照常自动点')
+  assert.deepEqual(single.allowClicks, ['allow'], 'with a single panel it is clicked automatically as usual')
 
   const many = createHarness('other', true, [], true)
   many.setApprovalDom({ scopedRoots: [], loosePanels: [many.panel, many.otherPanel] })
   many.send({ ...base, desktopActive: true, sessions: [] })
   many.send({ kind: 'session-action', sessionId: 'desk-2', approve: true })
   many.flushTitleTimers()
-  assert.deepEqual(many.allowClicks, [], '多个审批面板时不得自动点「允许一次」')
+  assert.deepEqual(many.allowClicks, [], 'with several approval panels nothing may be clicked automatically')
 })
 
 test('same session live work hides its own completion reminder', () => {
   const harness = createHarness('s1', true, {
-    s1: { id: 's1', title: '将PR迁移到桌面悬浮模式', running: true, completed: true, updatedAt: 9 },
+    s1: { id: 's1', title: 'Migrate the PR into desktop floating mode', running: true, completed: true, updatedAt: 9 },
   })
   harness.send({
     ...base,
     sessions: [
-      { sessionId: 's1', state: 'WORKING', message: '正在继续处理任务呢', detail: 'dsh-pet-remielle · 执行阶段', updatedAt: 9 },
+      { sessionId: 's1', state: 'WORKING', message: 'Still working on the task', detail: 'dsh-pet-remielle · Executing', updatedAt: 9 },
       {
         sessionId: 'completion:s1',
         targetSessionId: 's1',
         state: 'SUCCESS',
-        message: '这一轮顺利完成哦',
-        detail: 'dsh-pet-remielle · 本轮已完成',
+        message: 'This round went smoothly',
+        detail: 'dsh-pet-remielle · Turn complete',
         completed: true,
         completionNotification: true,
         updatedAt: 8,
       },
     ],
   })
-  harness.card('正在继续处理任务呢')
-  assert.equal(harness.elements.some((node) => node.className === 'rm2-pet-bubble-title' && node.textContent === '这一轮顺利完成哦'), false)
+  harness.card('Still working on the task')
+  assert.equal(harness.elements.some((node) => node.className === 'rm2-pet-bubble-title' && node.textContent === 'This round went smoothly~'), false)
 })
 
 test('sidebar green-dot session (completed) is surfaced as a clickable completion card', () => {
   const harness = createHarness('current', true, {
-    ws2: { id: 'ws2', displayTitle: '插件图标遮挡配色问题', completed: true, cwd: 'C:\\xx\\.dsh', updatedAt: 5 },
-    ws1: { id: 'ws1', title: '还在运行', running: true, completed: false, updatedAt: 4 },
+    ws2: { id: 'ws2', displayTitle: 'Plugin icon clashes with the palette', completed: true, cwd: 'C:\\xx\\.dsh', updatedAt: 5 },
+    ws1: { id: 'ws1', title: 'Still running', running: true, completed: false, updatedAt: 4 },
   })
   harness.send({ ...base, sessions: [] })
-  // 补卡标题用 success 固定文案池（不泄漏会话首条用户消息原文 displayTitle）。
-  const completionTitles = ['这次任务搞定啦~', '这一轮顺利完成哦', '任务完成咯，干得漂亮']
+  // The synthesized card title uses the fixed success copy pool (no leaking of the session's
+  // first user message displayTitle).
+  const completionTitles = ['That task is done~', 'This round went smoothly~', 'Job finished, not bad~']
   const card = harness.elements.find((node) => node.className === 'rm2-pet-bubble-title' && completionTitles.includes(node.textContent))
   assert.ok(card, 'missing sidebar completed completion card')
   const bubbleCard = card.parentNode.parentNode
@@ -326,24 +334,31 @@ test('sidebar green-dot session (completed) is surfaced as a clickable completio
 
 test('subagent sessions never become synthesized completion cards, fork sessions still do', () => {
   const harness = createHarness('current', true, {
-    // 子会话：DSH 列表行带 origin=subagent。宿主在 includeSubagents=false 时完全忽略它，
-    // 网页端不得再兜底合成——否则关掉开关也会看到子 Agent 的完成提醒。
-    child: { id: 'child', title: '探针任务', completed: true, cwd: 'C:\\xx\\dsh-pet-remielle', origin: 'subagent', parentId: 'parent', updatedAt: 6 },
-    // fork 会话：只带 parentId、没有 origin。它不是子 Agent，且被中断/停止时宿主不会生成
-    // 完成卡（只有正常结束才入队），网页兜底是那种情况下唯一的提醒来源，不能被一起跳过。
-    forked: { id: 'forked', title: 'fork 出来的会话', completed: true, cwd: 'C:\\xx\\dsh-pet-remielle', parentId: 'parent', updatedAt: 5 },
-    // 对照：普通会话的绿点仍必须合成卡（防止过滤写过头）。
-    plain: { id: 'plain', title: '普通会话', completed: true, cwd: 'C:\\xx\\.dsh', updatedAt: 4 },
+    // Sub-session: the DSH list row carries origin=subagent. The host ignores it entirely
+    // when includeSubagents=false, so the web client must not synthesize one either —
+    // otherwise sub-agent completion reminders show up even with the switch off.
+    child: { id: 'child', title: 'Probe task', completed: true, cwd: 'C:\\xx\\dsh-pet-remielle', origin: 'subagent', parentId: 'parent', updatedAt: 6 },
+    // Fork session: carries only parentId, no origin. It is not a sub-agent, and when it is
+    // interrupted/stopped the host does not generate a completion card (only a clean finish
+    // is queued), so the web fallback is the only reminder source in that case and must not
+    // be skipped along with the sub-agents.
+    forked: { id: 'forked', title: 'Session forked from another one', completed: true, cwd: 'C:\\xx\\dsh-pet-remielle', parentId: 'parent', updatedAt: 5 },
+    // Control: an ordinary session's green dot must still become a card (guards against
+    // over-filtering).
+    plain: { id: 'plain', title: 'Ordinary session', completed: true, cwd: 'C:\\xx\\.dsh', updatedAt: 4 },
   })
   harness.send({ ...base, sessions: [] })
-  // 牌叠只给顶层卡渲染标题、其余退化成 +N 背板，所以「合成了几张卡」要看背板计数：
-  // child 被过滤 → 只剩 forked + plain 两张 → 背板 +1（漏过滤会变成 +2）。
+  // The deck only renders titles for top-layer cards and degrades the rest into the +N
+  // backboard, so "how many cards were synthesized" has to be read from the backboard count:
+  // child is filtered → only forked + plain remain → backboard +1 (a missing filter would make
+  // it +2).
   const backboard = harness.elements.find((node) => String(node.className).includes('backboard'))
-  assert.ok(backboard, '两张合成卡应产生一张背板')
+  assert.ok(backboard, 'two synthesized cards should produce one backboard')
   const stackCount = backboard.children.find((node) => node.className === 'rm2-pet-bubble-stack-count')
   assert.equal(stackCount.textContent, '+1')
-  // 顶层卡应是 updatedAt 最大的 forked（child 未被合成）；漏过滤时顶层会变成 child。
-  const completionTitles = ['这次任务搞定啦~', '这一轮顺利完成哦', '任务完成咯，干得漂亮']
+  // The top card should be forked, which has the largest updatedAt (child was not
+  // synthesized); with a missing filter the top card would become child.
+  const completionTitles = ['That task is done~', 'This round went smoothly~', 'Job finished, not bad~']
   const topTitle = harness.elements.find(
     (node) => node.className === 'rm2-pet-bubble-title' && completionTitles.includes(node.textContent),
   )
@@ -354,8 +369,9 @@ test('subagent sessions never become synthesized completion cards, fork sessions
 
 test('bubble area swallows pet interactions (click/dblclick/pointerdown/mousedown)', () => {
   const harness = createHarness()
-  // 状态页牌叠（rm2-pet-bubbles）与余额页单气泡（rm2-pet-bubble top）都要拦截：
-  // 否则事件冒泡到 dock 会触发随机表情 / 双击画画 / 按下拖拽。
+  // Both the status-page deck (rm2-pet-bubbles) and the balance-page single bubble
+  // (rm2-pet-bubble top) must intercept these: otherwise the events bubble up to the dock
+  // and trigger a random reaction / double-click drawing / press-drag.
   for (const className of ['rm2-pet-bubble top', 'rm2-pet-bubbles']) {
     const el = harness.elements.find((node) => node.className === className)
     assert.ok(el, `missing element ${className}`)
@@ -371,17 +387,20 @@ test('bubble area swallows pet interactions (click/dblclick/pointerdown/mousedow
 
 test('bubble hover uses the default cursor and wheel flips pages instead of scaling', () => {
   const harness = createHarness()
-  // 「气泡区不继承 dock 的 grab 手型」原先是断言 CSS 文本里的 cursor:default，已移除：
-  // 指针形状是视觉表现，改成 `cursor: default`（多个空格）就会假红，而这不是行为
-  // 契约——同类判断应当是手工验收。下面几条断言的都是可观察行为。
+  // "the bubble area does not inherit the dock's grab cursor" used to be asserted against
+  // `cursor:default` inside the CSS text and was removed: pointer shape is a visual detail, so
+  // rewriting it as `cursor: default` (with several spaces) would fail for no real reason, and
+  // that is not a behavioral contract — such checks belong to manual acceptance. The
+  // assertions below all cover observable behavior instead.
   const balanceBubble = harness.elements.find((node) => node.className === 'rm2-pet-bubble top')
   const pageDot = harness.elements.find((node) => node.className === 'rm2-bubble-dot')
   assert.equal(balanceBubble.title, '', 'balance bubble must not inherit dock title')
   assert.equal(pageDot.title, '', 'page-switch dot must not inherit dock title')
-  assert.equal(pageDot.dataset.rm2Tip, '点击看余额呀~')
+  assert.equal(pageDot.dataset.rm2Tip, 'Click to see the balance~')
   harness.send({ ...base, sessions: [] })
-  // 滚轮翻页：两个气泡容器都要接住 wheel（stopPropagation，不冒泡到 dock 缩放），
-  // 且容器可命中（pointer-events:auto），卡片缝隙上的滚轮不再穿透。
+  // Wheel paging: both bubble containers must catch the wheel (stopPropagation, not bubbling
+  // up to the dock to scale), and the containers must be hit-testable (pointer-events:auto),
+  // so a wheel over the gap between cards no longer passes through.
   for (const className of ['rm2-pet-bubble top', 'rm2-pet-bubbles']) {
     const el = harness.elements.find((node) => node.className === className)
     assert.ok(el, `missing element ${className}`)
@@ -406,26 +425,26 @@ test('page-switch dot overlay tip follows the page and restores the card tip', (
       sessionId: 's1',
       state: 'WORKING',
       phase: 'output',
-      message: '正在输出回答哦',
-      detail: 'dsh-pet-remielle · 输出阶段',
+      message: 'Writing the answer out',
+      detail: 'dsh-pet-remielle · Responding',
     }],
   })
   const pageDot = harness.elements.find((node) => node.className === 'rm2-bubble-dot')
-  const card = harness.card('正在输出回答哦')
+  const card = harness.card('Writing the answer out')
   assert.equal(pageDot.title, '')
-  assert.equal(pageDot.dataset.rm2Tip, '点击看余额呀~')
+  assert.equal(pageDot.dataset.rm2Tip, 'Click to see the balance~')
   const enter = pageDot.listeners.get('mouseenter')?.[0]
   const leave = pageDot.listeners.get('mouseleave')?.[0]
   assert.ok(enter && leave, 'missing switch-dot hover listeners')
   enter({ stopPropagation() {} })
   const tip = harness.elements.find((node) => node.className === 'rm2-pet-tip')
   assert.ok(tip, 'missing .rm2-pet-tip')
-  assert.equal(tip.textContent, '点击看余额呀~')
+  assert.equal(tip.textContent, 'Click to see the balance~')
   leave({ relatedTarget: card })
-  assert.equal(tip.textContent, '点击跳到这里看一下~')
+  assert.equal(tip.textContent, 'Click to jump here and take a look~')
   leave({})
   assert.equal(tip.style.display, 'none')
   harness.click(pageDot)
-  assert.equal(pageDot.dataset.rm2Tip, '点击回状态呀~')
+  assert.equal(pageDot.dataset.rm2Tip, 'Click to go back to status~')
   assert.equal(pageDot.title, '')
 })

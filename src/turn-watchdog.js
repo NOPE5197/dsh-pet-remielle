@@ -1,20 +1,26 @@
 /**
- * Turn-hang watchdog (host half) — 兜底「强行终止会话后永久卡在分析阶段」。
+ * Turn-hang watchdog (host half) — a backstop for "force-killing a session
+ * leaves it stuck in Analyzing forever".
  *
- * 用户在 GUI 强杀会话时，DSH agent-loop 补写的 turn/end 既可能没有落盘、
- * 也不向 live 事件总线广播（仅冷读日志时 repair 补 turn/end{kind:'interrupted'}），
- * 插件侧只见事件流戛然而止，reducer 永远停在 THINKING（如 step/start 的
- * 「分析阶段」）。本模块只做纯判定并保持可单测：记录每个会话最近一次事件的
- * 时刻，配合 reducer.states() 扫描仍在 THINKING/WORKING 且超过阈值无任何
- * 事件的会话；WAITING/ERROR/IDLE 不判悬挂——审批与等待用户回答可以合法
- * 等待很久。命中后的收尾（合成 turn/end{kind:'aborted'}）由 index.js 接线，
- * 复用 reducer 现有的 aborted 分支回 IDLE「已停止」，不新增公开方法。
+ * When the user force-kills a session in the GUI, the turn/end that the DSH
+ * agent-loop backfills may never reach disk and is not broadcast on the live
+ * event bus (it is only repaired with turn/end{kind:'interrupted'} when
+ * cold-reading the log), so on the plugin side the event stream just stops
+ * abruptly and the reducer stays in THINKING forever (for instance at step/start
+ * — "Analyzing"). This module only performs a pure check and stays unit
+ * testable: it records the time of each session's last event and, together with
+ * reducer.states(), scans for sessions that are still THINKING/WORKING with no
+ * event for longer than the threshold; WAITING/ERROR/IDLE are never treated as
+ * hung — approvals and waiting for a user answer may legitimately take a long
+ * time. The wrap-up after a hit (synthesizing turn/end{kind:'aborted'}) is wired
+ * up by index.js, reusing the reducer's existing aborted branch to return to
+ * IDLE "Stopped", without adding any new public method.
  */
 
-/** 正常流式期间 chunk 事件频繁，3 分钟无任何事件即视为 turn 悬挂。 */
+/** Chunk events are frequent during normal streaming, so 3 minutes with no event at all counts as a hung turn. */
 export const TURN_STALL_THRESHOLD_MS = 180_000
 
-/** 看门狗扫描周期（index.js 里 setInterval 的间隔）。 */
+/** Watchdog scan period (the setInterval interval in index.js). */
 export const TURN_WATCHDOG_INTERVAL_MS = 30_000
 
 function isStallProne(state) {
@@ -22,25 +28,28 @@ function isStallProne(state) {
 }
 
 /**
- * 创建看门狗。`now` 可注入以便单测；`tick` 只读不写，
- * 命中列表由调用方收尾（合成 turn/end）后逐个调用 `end` 移除条目。
+ * Create the watchdog. `now` can be injected for unit tests; `tick` only reads
+ * and never writes, and the caller removes the entries of the returned hit list
+ * by calling `end` on each one after wrapping the turn up (synthesizing
+ * turn/end).
  */
 export function createTurnWatchdog({ thresholdMs = TURN_STALL_THRESHOLD_MS, now = Date.now } = {}) {
   const lastSeenMs = new Map()
   return {
-    /** 任一 session/event 到达时刷新该会话的活跃时间戳。 */
+    /** Refresh that session's activity timestamp whenever any session/event arrives. */
     feed(sessionId) {
       if (!sessionId) return
       lastSeenMs.set(String(sessionId), now())
     },
-    /** turn/end 或 session/disposed 后回合已收尾，条目随之移除。 */
+    /** After turn/end or session/disposed the turn is wrapped up, so the entry is removed. */
     end(sessionId) {
       if (!sessionId) return
       lastSeenMs.delete(String(sessionId))
     },
     /**
-     * 扫描 reducer.states() 快照，返回超阈值且仍处 THINKING/WORKING 的
-     * 会话 id 列表；未 feed 过或已 end 的会话天然不会命中。
+     * Scan a reducer.states() snapshot and return the ids of sessions that are
+     * over the threshold yet still THINKING/WORKING; sessions that were never
+     * fed or have already ended naturally never match.
      */
     tick(states, at = now()) {
       const stalled = []

@@ -1,13 +1,17 @@
 /**
- * release 说明的 markdown 渲染器（src/markdown.cjs）行为单测。
+ * Behaviour unit tests for the markdown renderer of release notes
+ * (src/markdown.cjs).
  *
- * 这段实现原先内联在 client.core.js 里，单测只能按 `// ---- md render begin ----`
- * 标记把源码切出来、丢进 vm 求值——测试挂在「源码长什么样」上，标记一改就断。
- * 抽成独立 .cjs 后直接 require，断言一条未减。
+ * This implementation used to be inlined in client.core.js, so the unit tests
+ * had to slice the source out between the `// ---- md render begin ----`
+ * markers and evaluate it in a vm — the test hung on "what the source looks
+ * like" and broke as soon as a marker changed. After extracting it into a
+ * standalone .cjs it can simply be required, with not one assertion removed.
  *
- * 安全面是本文件重点：release body 来自 GitHub 远端，不可信任，
- * 因此「先整体 HTML 转义、再做 markdown 变换」的顺序与链接协议白名单
- * 必须由行为断言钉住，不能只靠代码评审。
+ * The security surface is this file's focus: a release body comes from GitHub
+ * remote and cannot be trusted, so the order of "escape the whole thing as HTML
+ * first, then apply the markdown transforms" and the link protocol allowlist must
+ * be pinned by behavioural assertions, not left to code review alone.
  */
 import assert from 'node:assert/strict'
 import { createRequire } from 'node:module'
@@ -17,72 +21,76 @@ const require = createRequire(import.meta.url)
 const { mdEscapeHtml, mdInline, mdSafeUrl, renderMarkdown } = require('../src/markdown.cjs')
 
 test('block syntax: headings, lists, quote, rule and paragraphs', () => {
-  const html = renderMarkdown('# v0.5.0\n\n## Fixes\n\n- 修复 **撞色** 问题\n- 见 `hover` 规则\n\n1. 第一步\n2. 第二步\n\n> 提示\n\n---\n\n正文一行\n正文二行')
-  assert.ok(html.includes('<h1>v0.5.0</h1>'), '应渲染 h1')
-  assert.ok(html.includes('<h2>Fixes</h2>'), '应渲染 h2')
-  assert.ok(html.includes('<ul><li>'), '无序列表应渲染成 ul/li')
-  assert.ok(html.includes('<ol><li>第一步</li><li>第二步</li></ol>'), '有序列表应渲染成 ol/li')
-  assert.ok(html.includes('<strong>撞色</strong>'), '粗体应渲染')
-  assert.ok(html.includes('<code>hover</code>'), '行内代码应渲染')
-  assert.ok(html.includes('<blockquote>提示</blockquote>'), '引用应渲染')
-  assert.ok(html.includes('<hr>'), '分隔线应渲染')
-  // 段内换行是软换行 → <br>，空行才是分段
-  assert.ok(html.includes('<p>正文一行<br>正文二行</p>'), '段内单换行应折成 <br>，空行分段')
-  // 列表类型切换必须闭合上一个列表，不能出现 <ul>…<ol> 嵌套
-  assert.ok(!/<ul>[^<]*<ol>/.test(html.replace(/<li>[^<]*<\/li>/g, '')), '列表类型切换时必须先闭合前一个列表')
+  const html = renderMarkdown('# v0.5.0\n\n## Fixes\n\n- Fixed the **contrast** problem\n- See the `hover` rule\n\n1. First step\n2. Second step\n\n> Note\n\n---\n\nFirst body line\nSecond body line')
+  assert.ok(html.includes('<h1>v0.5.0</h1>'), 'h1 should render')
+  assert.ok(html.includes('<h2>Fixes</h2>'), 'h2 should render')
+  assert.ok(html.includes('<ul><li>'), 'an unordered list should render as ul/li')
+  assert.ok(html.includes('<ol><li>First step</li><li>Second step</li></ol>'), 'an ordered list should render as ol/li')
+  assert.ok(html.includes('<strong>contrast</strong>'), 'bold should render')
+  assert.ok(html.includes('<code>hover</code>'), 'inline code should render')
+  assert.ok(html.includes('<blockquote>Note</blockquote>'), 'a quote should render')
+  assert.ok(html.includes('<hr>'), 'a thematic break should render')
+  // A newline inside a paragraph is a soft break → <br>; only a blank line starts
+  // a new paragraph
+  assert.ok(html.includes('<p>First body line<br>Second body line</p>'), 'a single newline inside a paragraph should fold into <br>, a blank line starts a paragraph')
+  // Switching list type must close the previous list; there must be no
+  // <ul>…<ol> nesting
+  assert.ok(!/<ul>[^<]*<ol>/.test(html.replace(/<li>[^<]*<\/li>/g, '')), 'switching list type must first close the previous list')
 })
 
 test('inline emphasis: bold / italic / strikethrough do not eat each other', () => {
-  assert.ok(mdInline('**粗**').includes('<strong>粗</strong>'), '粗体')
-  assert.ok(mdInline('*斜*').includes('<em>斜</em>'), '斜体')
-  assert.ok(mdInline('~~删~~').includes('<del>删</del>'), '删除线')
-  // ** 加粗不应被先执行的 * 斜体规则吃掉
-  assert.ok(mdInline('**粗**尾').includes('<strong>粗</strong>尾'), '**…** 必须整体成对，不能被单星规则拆开')
+  assert.ok(mdInline('**bold**').includes('<strong>bold</strong>'), 'bold')
+  assert.ok(mdInline('*italic*').includes('<em>italic</em>'), 'italic')
+  assert.ok(mdInline('~~struck~~').includes('<del>struck</del>'), 'strikethrough')
+  // ** bold must not be eaten by the * italic rule that runs first
+  assert.ok(mdInline('**bold** tail').includes('<strong>bold</strong> tail'), '**…** must stay paired and must not be split by the single-star rule')
 })
 
 test('fenced code block content is escaped and never parsed as markdown', () => {
-  const code = renderMarkdown('```\n**不是粗体** <img>\n```')
-  assert.ok(code.includes('<pre><code>'), '围栏代码块应渲染为 pre>code')
-  assert.ok(code.includes('**不是粗体**') && !code.includes('<strong>'), '代码块内容不得被 markdown 解析')
-  assert.ok(code.includes('&lt;img&gt;'), '代码块内容必须转义')
-  // 未闭合的围栏：文件末尾仍要闭合标签
-  assert.ok(renderMarkdown('```\n未闭合').endsWith('</code></pre>'), '未闭合围栏必须在结尾补齐')
+  const code = renderMarkdown('```\n**not bold** <img>\n```')
+  assert.ok(code.includes('<pre><code>'), 'a fenced code block should render as pre>code')
+  assert.ok(code.includes('**not bold**') && !code.includes('<strong>'), 'code block content must not be parsed as markdown')
+  assert.ok(code.includes('&lt;img&gt;'), 'code block content must be escaped')
+  // An unclosed fence: the tags must still be closed at the end of the file
+  assert.ok(renderMarkdown('```\nunclosed').endsWith('</code></pre>'), 'an unclosed fence must be completed at the end')
 })
 
 test('XSS: escape happens before every markdown transform', () => {
   const xss = renderMarkdown('<script>alert(1)</script>\n\n[x](javascript:alert(1)) ![y](javascript:x)')
-  assert.ok(!xss.includes('<script>'), 'HTML 标签必须被转义为字面文本')
-  assert.ok(xss.includes('&lt;script&gt;'), '转义后的标签应可见为纯文本')
-  assert.ok(!xss.includes('href="javascript:'), 'javascript: 链接必须被拒绝')
-  assert.ok(mdInline('<b>&</b>').includes('&lt;b&gt;&amp;&lt;/b&gt;'), '行内变换前必须先整体 HTML 转义')
-  // 转义顺序错了就会出现 "&lt;script&gt;" 被后续规则当标签重新解释的机会
-  assert.equal(mdEscapeHtml('<a href="x">&\'</a>'), '&lt;a href=&quot;x&quot;&gt;&amp;&#39;&lt;/a&gt;', '实体与引号必须一并转义')
+  assert.ok(!xss.includes('<script>'), 'HTML tags must be escaped into literal text')
+  assert.ok(xss.includes('&lt;script&gt;'), 'the escaped tag should be visible as plain text')
+  assert.ok(!xss.includes('href="javascript:'), 'javascript: links must be rejected')
+  assert.ok(mdInline('<b>&</b>').includes('&lt;b&gt;&amp;&lt;/b&gt;'), 'the whole thing must be HTML-escaped before any inline transform')
+  // With the escape order wrong there is a chance that "&lt;script&gt;" gets
+  // reinterpreted as a tag by a later rule
+  assert.equal(mdEscapeHtml('<a href="x">&\'</a>'), '&lt;a href=&quot;x&quot;&gt;&amp;&#39;&lt;/a&gt;', 'entities and quotes must both be escaped')
 })
 
 test('mdSafeUrl only allows http(s) and mailto', () => {
   assert.equal(mdSafeUrl('javascript:alert(1)'), '#')
   assert.equal(mdSafeUrl('data:text/html,<script>'), '#')
-  assert.equal(mdSafeUrl('  https://ok.example.com/a  '), 'https://ok.example.com/a', '两端空白应先 trim')
+  assert.equal(mdSafeUrl('  https://ok.example.com/a  '), 'https://ok.example.com/a', 'surrounding whitespace should be trimmed first')
   assert.equal(mdSafeUrl('https://ok.example.com/a'), 'https://ok.example.com/a')
   assert.equal(mdSafeUrl('mailto:a@b.c'), 'mailto:a@b.c')
-  assert.equal(mdSafeUrl('HTTPS://OK.EXAMPLE.COM/A'), 'HTTPS://OK.EXAMPLE.COM/A', '协议判定应大小写不敏感')
-  assert.equal(mdSafeUrl('https://a.com/"onload="x'), 'https://a.com/%22onload=%22x', 'URL 内的引号必须百分号转义，否则能逃出属性')
+  assert.equal(mdSafeUrl('HTTPS://OK.EXAMPLE.COM/A'), 'HTTPS://OK.EXAMPLE.COM/A', 'the protocol check should be case-insensitive')
+  assert.equal(mdSafeUrl('https://a.com/"onload="x'), 'https://a.com/%22onload=%22x', 'quotes inside the URL must be percent-escaped, otherwise they can break out of the attribute')
   assert.equal(mdSafeUrl(''), '#')
   assert.equal(mdSafeUrl(null), '#')
 })
 
 test('rendered links are rel-protected', () => {
-  const html = renderMarkdown('[点我](https://github.com/x)')
-  assert.ok(html.includes('target="_blank"'), '外链应新开页')
-  assert.ok(html.includes('rel="noopener noreferrer"'), '外链必须带 noopener noreferrer，否则目标页能反向操纵本页')
+  const html = renderMarkdown('[click me](https://github.com/x)')
+  assert.ok(html.includes('target="_blank"'), 'an external link should open in a new page')
+  assert.ok(html.includes('rel="noopener noreferrer"'), 'an external link must carry noopener noreferrer, otherwise the target page can manipulate this page')
 })
 
 test('empty and non-string input degrade instead of throwing', () => {
   assert.equal(renderMarkdown(''), '')
   assert.equal(renderMarkdown(null), '')
   assert.equal(renderMarkdown(undefined), '')
-  // 入口是 String(src || '')：0 这类 falsy 非字符串一并退化成空串，不抛错即可。
-  // 调用方 baseUpdateNotes() 本来就只传字符串。
+  // The entry point is String(src || ''): falsy non-strings such as 0 degrade to
+  // an empty string too, and not throwing is all that is required.
+  // The caller baseUpdateNotes() only ever passes strings anyway.
   assert.equal(renderMarkdown(0), '')
-  assert.equal(renderMarkdown(12.5), '<p>12.5</p>', '真值非字符串应按字符串渲染')
+  assert.equal(renderMarkdown(12.5), '<p>12.5</p>', 'a truthy non-string should render as a string')
 })

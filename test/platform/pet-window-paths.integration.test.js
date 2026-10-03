@@ -6,11 +6,12 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 
-// 平台集成测试：需要真实子进程来验证退出 PID；受限沙箱中应由 CI 运行。
+// Platform integration test: needs a real child process to verify the exited PID; should be
+// run by CI in a restricted sandbox.
 const require = createRequire(import.meta.url)
 const paths = require('../../src/pet-window-paths.cjs')
 
-/** 每个用例一个独立临时根目录，结束后整目录删除（只删自己建的那一个）。 */
+/** One independent temporary root directory per case, the whole directory removed afterwards (only the one we created). */
 function withTempRoot(run) {
   const root = mkdtempSync(join(tmpdir(), 'dsh-pet-paths-'))
   try {
@@ -24,16 +25,18 @@ test('isProcessAlive rejects junk input and reports ESRCH as dead / EPERM as ali
   assert.equal(paths.isProcessAlive(0), false)
   assert.equal(paths.isProcessAlive(-5), false)
   assert.equal(paths.isProcessAlive(Number.NaN), false)
-  assert.equal(paths.isProcessAlive(process.pid), true, '自己的 pid 必然存活')
+  assert.equal(paths.isProcessAlive(process.pid), true, 'our own pid is necessarily alive')
 
-  // 拿一个确定已退出的真实 pid（spawnSync 返回时子进程已结束）。不用固定大数字：
-  // 不同平台/容器里它可能落在合法范围内，断言会随机翻红。
+  // Take a real pid that is certainly exited (the child is already finished when spawnSync
+  // returns). Not a fixed big number: it may fall inside the valid range on some
+  // platforms/containers, which makes the assertion flip red at random.
   const exited = spawnSync(process.execPath, ['-e', '0'])
   assert.ok(Number.isInteger(exited.pid) && exited.pid > 0)
   assert.equal(paths.isProcessAlive(exited.pid), false)
 
-  // EPERM = 进程存在但无权发信号（DSH Desktop 的 NodeService 宿主就是这种）。
-  // 真实场景难构造，直接替换 process.kill 的返回值来钉住这条分支。
+  // EPERM = the process exists but the signal may not be sent (the NodeService host of DSH
+  // Desktop is exactly that case). Hard to construct for real, so replace process.kill's
+  // behaviour to pin this branch.
   const original = process.kill
   process.kill = () => {
     const error = new Error('operation not permitted')
@@ -41,7 +44,7 @@ test('isProcessAlive rejects junk input and reports ESRCH as dead / EPERM as ali
     throw error
   }
   try {
-    assert.equal(paths.isProcessAlive(1234), true, 'EPERM 必须视为存活，否则会误杀活着的宿主')
+    assert.equal(paths.isProcessAlive(1234), true, 'EPERM must count as alive, otherwise a living host gets killed')
   } finally {
     process.kill = original
   }

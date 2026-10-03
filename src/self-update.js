@@ -47,8 +47,10 @@ export const UPDATE_ENDPOINT = '/plugins/dsh-pet-remielle/update'
 export const PROGRESS_ENDPOINT = '/plugins/dsh-pet-remielle/update-progress'
 export const INFO_ENDPOINT = '/plugins/dsh-pet-remielle/info'
 
-// 包名/行 id 自 0.3.0 起变动（0.2.0 之前为 @dsh-external/dsh-client-ui-pet-remielle，
-// 0.2.0–0.3.0 为 dsh-pet-remielle）：低于该版本的安装形态不同，无法增量更新，必须卸载重装。
+// The package name / plugin id changed in 0.3.0 (before 0.2.0 it was
+// @dsh-external/dsh-client-ui-pet-remielle, 0.2.0–0.3.0 it was dsh-pet-remielle):
+// older installs have a different shape, cannot be incrementally updated, and
+// must be uninstalled and reinstalled.
 export const PACKAGE_RENAME_MIN = '0.3.0'
 
 function semverLt(a, b) {
@@ -66,8 +68,10 @@ export function needsCleanReinstallFor(version) {
   return semverLt(version, PACKAGE_RENAME_MIN)
 }
 
-/** 无法自动增量更新：要么版本 < 0.3.0（包名已变更），要么非 link 安装（未发布到
- *  npm/pnpm，pnpm update 不可用）。此时应引导用户彻底卸载重装。 */
+/** Cannot be updated incrementally automatically: either the version is
+ *  < 0.3.0 (the package name changed), or it is not a link install (never
+ *  published to npm/pnpm, so `pnpm update` is unavailable). The user must then
+ *  be guided through a full uninstall and reinstall. */
 const isWin = process.platform === 'win32'
 
 /** Local HTTP proxy candidates (in priority order) for reaching GitHub from CN networks. */
@@ -242,22 +246,26 @@ export function resolveInstall() {
   return { mode: 'github', profileDir: pkgDir.slice(0, idx), version }
 }
 
-// ---- 更新进度（环形缓冲 + 实时端点） ----
-// 固定 90s 硬超时的教训（0.4.3 慢网用户大量被误杀）：pnpm 解析元数据 + 下载
-// tarball 本来就可能超过 90s（国内直连 npmjs 时单个包解析就能花 13s+），但只要
-// 子进程还在持续输出就说明它没挂。改为「空闲超时」：每收到一段输出就重置计时器，
-// 连续 60s 无任何输出才判定挂起；另设 10 分钟总上限兜底（防输出不断但永远不结束）。
+// ---- update progress (ring buffer + live endpoint) ----
+// Lesson from the fixed 90s hard timeout (0.4.3 wrongly killed many users on
+// slow networks): pnpm resolving metadata and downloading tarballs can legitimately
+// take more than 90s (a single package resolution costs 13s+ on a direct npmjs
+// connection from CN), but as long as the child keeps producing output it is not
+// hung. Switched to an "idle timeout": every chunk of output resets the timer and
+// only 60s of total silence counts as hung; a 10-minute overall cap backstops it
+// (in case output keeps coming but the process never ends).
 export const IDLE_TIMEOUT_MS = 60000
 export const TOTAL_TIMEOUT_MS = 600000
 
-// 进度只保留末尾 ~50 行：进度卡片只需要最近的下载/安装动态，全量输出仍在
-// 最终响应里返回（done 态展示）。pnpm 进度条用 \r 刷新，这里按行切开后自然会
-// 只留最后一帧附近的内容。
+// Only the last ~50 lines of progress are kept: the progress card only needs the
+// most recent download/install activity, and the full output is still returned in
+// the final response (shown in the done state). The pnpm progress bar refreshes with
+// \r, so splitting by lines naturally keeps only what is near the last frame.
 const PROGRESS_TAIL_LINES = 50
 
 let updateProgress = { running: false, startedAt: 0, lastActivityAt: 0, tail: [] }
 
-/** 追加一段子进程输出到进度缓冲（按行切分，超出保留窗口的旧行丢弃）。 */
+/** Append a chunk of child output to the progress buffer (split by line, dropping lines older than the window). */
 function pushProgressOutput(text) {
   const lines = String(text).split(/\r?\n|\r/)
   for (const ln of lines) {
@@ -276,7 +284,7 @@ function endUpdateProgress() {
   updateProgress.running = false
 }
 
-/** 进度端点负载：更新是否进行中、已耗时、最近输出尾部。 */
+/** Progress endpoint payload: whether an update is running, how long it has taken, the tail of recent output. */
 export function getUpdateProgress() {
   return {
     running: updateProgress.running,
@@ -297,7 +305,7 @@ export function progressHandler(req, res) {
   json(res, 200, { ok: true, ...getUpdateProgress() })
 }
 
-/** Windows 上 shell:true 包了层 cmd.exe，taskkill /T 连树一起杀，避免 pnpm.exe 孤儿。 */
+/** On Windows shell:true wraps a cmd.exe layer, so taskkill /T kills the whole tree and no pnpm.exe orphan is left. */
 function killChildTree(child, spawnImpl = spawn) {
   try {
     if (isWin && child.pid) {
@@ -330,8 +338,9 @@ export function run(cmd, args, cwd, opts) {
       if (activeChild === child) activeChild = null
       resolvePromise({ ok, output })
     }
-    // 超时终止：先杀进程树再落结论——挂死的 pnpm 若继续活着改写 node_modules，
-    // 用户重试更新就是在半成品上叠半成品
+    // Kill on timeout: tear down the process tree first, then reach the conclusion —
+    // a hung pnpm that stays alive keeps rewriting node_modules, so a user retrying
+    // the update would be stacking half-finished state on half-finished state
     const finishTimedOut = (output) => {
       killChildTreeImpl(child)
       finish(false, output)
@@ -351,12 +360,14 @@ export function run(cmd, args, cwd, opts) {
     }
     activeChild = child
     let out = ''
-    // 空闲超时：任何一段输出（stdout/stderr）都重置计时器。慢网下载期间 pnpm
-    // 持续产出进度行，不会被误杀；真正挂死的进程 60s 内无输出、被终止。
+    // Idle timeout: any chunk of output (stdout/stderr) resets the timer. During a
+    // slow-network download pnpm keeps emitting progress lines and is not killed
+    // by mistake; a genuinely hung process produces no output for 60s and is
+    // terminated.
     const armIdleTimer = () => {
       if (idleTimer) clearTimeoutImpl(idleTimer)
       idleTimer = setTimeoutImpl(
-        () => finishTimedOut(out + `\n[timeout: no output for ${Math.max(1, Math.round(idleTimeoutMs / 1000))}s — 更新进程疑似挂起]`),
+        () => finishTimedOut(out + `\n[timeout: no output for ${Math.max(1, Math.round(idleTimeoutMs / 1000))}s — the update process looks hung]`),
         idleTimeoutMs,
       )
       idleTimer.unref?.()
@@ -365,7 +376,8 @@ export function run(cmd, args, cwd, opts) {
     child.stderr?.on('data', (d) => { out += String(d); pushProgressOutput(String(d)); armIdleTimer() })
     child.on('error', (err) => finish(false, out + '\n' + String(err.message)))
     child.on('close', (code) => finish(code === 0, out))
-    // 总上限兜底：输出一直有但进程永不结束（如交互式提示卡住）也能退出
+    // Overall cap as backstop: it still exits when output keeps coming but the
+    // process never finishes (e.g. an interactive prompt is stuck)
     totalTimer = setTimeoutImpl(
       () => finishTimedOut(out + `\n[timeout: exceeded total ${Math.max(1, Math.round(totalTimeoutMs / 1000))}s]`),
       totalTimeoutMs,
@@ -375,8 +387,9 @@ export function run(cmd, args, cwd, opts) {
   })
 }
 
-/** 进行中的更新子进程（pnpm/git）。宿主退出时 killActiveUpdate() 终止它——
- *  否则孤儿进程继续改写 node_modules，半成品包会让下一次启动崩溃。 */
+/** The in-flight update child process (pnpm/git). killActiveUpdate() terminates it when
+ *  the host exits — otherwise an orphan process keeps rewriting node_modules and the
+ *  half-finished package crashes the next start. */
 let activeChild = null
 export function killActiveUpdate() {
   const child = activeChild
@@ -384,10 +397,13 @@ export function killActiveUpdate() {
   killChildTree(child)
 }
 
-// ---- 失败后旧安装完整性自检 ----
-// pnpm 被超时/宿主退出中途杀掉时，node_modules 可能已被动到一半（pnpm 无回滚）：
-// 旧版当下还能跑（代码在内存里），但下次重启可能加载失败。更新失败时立即检测
-// 自己的包目录并如实上报，让用户马上知道旧版还能不能继续用，而不是等重启才炸。
+// ---- integrity self-check of the old install after a failure ----
+// When pnpm is killed midway by a timeout or by host exit, node_modules may
+// already be half-modified (pnpm has no rollback): the old version still runs
+// right now (the code is in memory) but the next restart may fail to load. When
+// an update fails, detect our own package directory immediately and report it
+// honestly, so the user learns at once whether the old version is still usable
+// instead of only finding out at the next restart.
 export function verifyInstallIntegrity(pkgDir) {
   const dir = pkgDir || dirname(dirname(fileURLToPath(import.meta.url)))
   const problems = []
@@ -395,13 +411,13 @@ export function verifyInstallIntegrity(pkgDir) {
   try {
     pj = JSON.parse(readFileSync(`${dir}/package.json`, 'utf8'))
   } catch (err) {
-    problems.push(`package.json 不可读（${String((err && err.message) || err).slice(0, 80)}）`)
+    problems.push(`package.json is unreadable (${String((err && err.message) || err).slice(0, 80)})`)
   }
   if (pj) {
     const entry = typeof pj.main === 'string' && pj.main ? pj.main : 'src/index.js'
-    if (!existsSync(`${dir}/${entry}`)) problems.push(`入口文件缺失: ${entry}`)
+    if (!existsSync(`${dir}/${entry}`)) problems.push(`entry file is missing: ${entry}`)
   }
-  if (!existsSync(`${dir}/src`)) problems.push('src/ 目录缺失')
+  if (!existsSync(`${dir}/src`)) problems.push('the src/ directory is missing')
   return { ok: problems.length === 0, problems, pkgDir: dir }
 }
 
@@ -440,7 +456,7 @@ export function infoHandler(req, res) {
     const info = resolveInstall()
     const needsReinstall = needsCleanReinstallFor(info.version)
     const cmd = needsReinstall
-      ? '（版本低于 0.3.0：包名已变更，需彻底卸载后重新安装）'
+      ? '(version below 0.3.0: the package name has changed, so a clean uninstall and reinstall is required)'
       : info.mode === 'link' && info.repoDir
         ? `cd /d "${info.repoDir}" && git pull`
         : info.profileDir
@@ -497,12 +513,14 @@ export async function checkHandler(req, res) {
   }
 }
 
-// ---- 注入点（宿主注册路由时设置，测试可覆盖）----
-// - stopDesktopWindow：更新前停掉桌面宠物窗并等待其进程退出。桌宠窗的
-//   Electron 运行时就住在插件包目录里（vendor/electron-<platform>-<arch>，
-//   由 electronArtifact 按平台解析）；Windows 上进程不退出会锁住文件——pnpm/git
-//   替换包内容直接 EPERM。未注入（单测/无桌面窗）则跳过。
-// - run / resolveInstall：测试注入假实现用。
+// ---- injection points (set when the host registers the routes, overridable by tests)----
+// - stopDesktopWindow: stop the desktop pet window before updating and wait for
+//   its process to exit. The desktop pet window's Electron runtime lives inside
+//   the plugin package directory (vendor/electron-<platform>-<arch>, resolved
+//   per platform by electronArtifact); on Windows a process that does not exit
+//   locks those files — pnpm/git replacing the package contents hits EPERM
+//   directly. Skipped when not injected (unit tests / no desktop window).
+// - run / resolveInstall: tests inject fake implementations.
 const hooks = {
   stopDesktopWindow: null,
   onUpdateSuccess: null,
@@ -524,7 +542,7 @@ export function setSelfUpdateHooks(next = {}) {
 
 async function quiesceDesktopWindow() {
   if (typeof hooks.stopDesktopWindow !== 'function') return
-  try { await hooks.stopDesktopWindow() } catch { /* 停不掉也继续尝试更新 */ }
+  try { await hooks.stopDesktopWindow() } catch { /* continue trying the update even if it cannot be stopped */ }
 }
 
 export async function updateHandler(req, res) {
@@ -532,57 +550,70 @@ export async function updateHandler(req, res) {
     json(res, 403, { ok: false, output: 'forbidden: update route is local-only' })
     return
   }
-  // 方法必须钉死：Fetch 规范下跨源 GET/HEAD（<img src=...>、<form method=GET>）不带
-  // Origin 头，mode 是 no-cors 而非 cors，于是上面三项守卫全部通过。不钉方法的话，
-  // 恶意页面一个 <img> 就能触发 git pull / pnpm update（后者会跑依赖 lifecycle scripts）。
+  // The method must be pinned: under the Fetch spec a cross-origin GET/HEAD
+  // (<img src=...>, <form method=GET>) carries no Origin header and its mode is
+  // no-cors rather than cors, so all three guards above pass. Without a pinned
+  // method a single hostile <img> could trigger git pull / pnpm update (and the
+  // latter runs dependency lifecycle scripts).
   if (req.method !== 'POST') {
     json(res, 405, { ok: false, output: 'method not allowed (POST only)' })
     return
   }
   if (updateProgress.running) {
-    json(res, 409, { ok: false, output: '更新正在进行，请等待当前更新完成后再试。' })
+    json(res, 409, { ok: false, output: 'An update is already running. Please wait for it to finish and try again.' })
     return
   }
-  // 首次 await 前占用更新状态，覆盖停窗、执行和收尾；拒绝的请求不能重置进度。
+  // Claim the update state before the first await, covering window shutdown,
+  // execution and wrap-up; a rejected request must not reset the progress.
   beginUpdateProgress()
-  // 全量兜底：更新链路上任何意外异常（如包目录正处于被替换的中间态）
-  // 都必须落成 500 响应——异步路由抛未处理拒绝会直接拖垮宿主进程
+  // Full backstop: any unexpected exception anywhere in the update chain (such
+  // as the package directory being mid-replacement) must become a 500 response
+  // — an async route throwing an unhandled rejection takes the host process down
   try {
     const info = hooks.resolveInstall()
-    // 仅版本 < 0.3.0（包名已变更）需彻底卸载重装；>= 0.3.0 的 link 与 registry 安装
-    // 都支持一键增量更新（link→git pull，registry→pnpm update --latest）。
+    // Only versions < 0.3.0 (the package name changed) need a clean uninstall
+    // and reinstall; both link and registry installs at >= 0.3.0 support the
+    // one-click incremental update (link → git pull, registry → pnpm update
+    // --latest).
     if (needsCleanReinstallFor(info.version)) {
       json(res, 500, {
         ok: false,
         needsCleanReinstall: true,
-        output: '版本低于 0.3.0，包名/行 id 已变更，无法自动增量更新。\n请先卸载当前安装、再重装最新版：\n  · 若旧版为 0.2.0 及之前：dsh plugin --profile web remove @dsh-external/dsh-client-ui-pet-remielle\n  · 若旧版为 0.2.0–0.3.0：dsh plugin --profile web remove dsh-pet-remielle\n  然后：dsh plugin --profile web add dsh-pet-remielle\n（详见 README 的升级说明。）',
+        output: 'Version below 0.3.0: the package name / plugin id has changed, so an automatic incremental update is impossible.\nUninstall the current install first, then install the latest version:\n  · If the old version is 0.2.0 or earlier: dsh plugin --profile web remove @dsh-external/dsh-client-ui-pet-remielle\n  · If the old version is 0.2.0–0.3.0: dsh plugin --profile web remove dsh-pet-remielle\n  Then: dsh plugin --profile web add dsh-pet-remielle\n(See the upgrade notes in the README.)',
       })
       return
     }
-    // 先停掉桌面宠物窗并等待其退出：electron.exe 运行中会锁住插件目录内的文件，
-    // 否则 pnpm/git 替换包内容时报 EPERM（link 模式的 git pull 同理）
+    // Stop the desktop pet window and wait for it to exit first: a running
+    // electron.exe locks files inside the plugin directory, which otherwise makes
+    // pnpm/git fail with EPERM when replacing the package contents (the same
+    // applies to git pull in link mode)
     await quiesceDesktopWindow()
     let result
     if (info.mode === 'link' && info.repoDir) {
       result = await hooks.run('git', ['-C', info.repoDir, 'pull'], info.repoDir)
     } else if (info.profileDir && existsSync(info.profileDir)) {
-      // --latest：跨出 package.json 里可能被钉死的精确版本号（如 "0.3.3"）。
-      // 普通 pnpm update 只在声明范围内升级，精确锁会永远原地重装旧版却报成功。
+      // --latest: step outside the exact version possibly pinned in package.json
+      // (say "0.3.3"). A plain pnpm update only upgrades inside the declared
+      // range, so an exact pin reinstalls the old version forever yet reports
+      // success.
       result = await hooks.run('pnpm', ['update', '--latest', PKG], info.profileDir)
     } else {
       json(res, 500, { ok: false, output: 'unknown install shape' })
       return
     }
-    // 成功后置回调：宿主借此收尾（如关闭桌面模式——运行时已随更新被移除）。
-    // 返回字符串则追加到输出里展示给用户。
+    // Post-success callback: the host uses it to wrap up (e.g. switching off
+    // desktop mode — the runtime is removed by the update). A returned string
+    // is appended to the output shown to the user.
     if (result.ok && typeof hooks.onUpdateSuccess === 'function') {
       try {
         const note = hooks.onUpdateSuccess()
         if (typeof note === 'string' && note) result = { ok: true, output: result.output + '\n' + note }
-      } catch { /* 收尾失败不影响更新结果 */ }
+      } catch { /* a failed wrap-up does not change the update result */ }
     }
-    // 失败自检：pnpm 中途被杀可能留下半成品 node_modules——旧版当下不受影响
-    // （代码已加载进内存），但要立刻告诉用户磁盘上的旧安装是否还能撑到下次重启
+    // Failure self-check: pnpm being killed midway may leave a half-finished
+    // node_modules — the old version is unaffected right now (the code is already
+    // loaded into memory), but the user must be told immediately whether the old
+    // install on disk can still survive until the next restart
     if (!result.ok) {
       try {
         const pkgDir = info.mode === 'link' && info.repoDir
@@ -593,10 +624,10 @@ export async function updateHandler(req, res) {
         if (pkgDir) {
           const integrity = verifyInstallIntegrity(pkgDir)
           result.output += integrity.ok
-            ? '\n\n✅ 自检：当前安装完好，旧版本可继续正常使用，稍后可重试更新。'
-            : `\n\n⚠️ 自检：当前安装完整性异常（${integrity.problems.join('；')}）——旧版本重启后可能无法加载，建议到 GitHub Releases 按指引手动重装。`
+            ? '\n\n✅ Self-check: the current install is intact, the old version keeps working normally, and you can retry the update later.'
+            : `\n\n⚠️ Self-check: the current install is not intact (${integrity.problems.join('; ')}) — the old version may fail to load after a restart; reinstall manually following the instructions on GitHub Releases.`
         }
-      } catch { /* 自检失败不影响原有错误响应 */ }
+      } catch { /* a failed self-check does not change the existing error response */ }
     }
     json(res, result.ok ? 200 : 500, { ok: result.ok, output: result.output.slice(-6000) })
   } catch (err) {

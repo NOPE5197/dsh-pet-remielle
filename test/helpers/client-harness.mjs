@@ -87,6 +87,9 @@ export function createHarness(initialCurrent = 'other', autoSelect = true, snaps
   const body = element('body')
   const head = element('head')
   const allowClicks = []
+  // The approval buttons keep their Chinese labels on purpose: the plugin's allow-once
+  // matcher is bilingual input matching against the DSH host DOM, so keeping the fixture
+  // Chinese proves that branch still resolves after the UI copy is translated.
   const allowBtn = {
     textContent: ' 允许一次 ',
     innerText: ' 允许一次 ',
@@ -105,15 +108,18 @@ export function createHarness(initialCurrent = 'other', autoSelect = true, snaps
       return []
     },
   }
-  // 第二个审批面板：挂在**另一个**会话根（otherConversationFrame）下。
+  // A second approval panel, hung under **another** session root (otherConversationFrame).
   //
-  // 它必须带一个可点按钮。此前这里 querySelectorAll 恒返回 []，理由写的是
-  // 「多面板时一个都不点，所以不需要按钮」——那个理由只对 document 级闸门成立，
-  // 对会话作用域分支是致命的：根里没有可点按钮时，approvalPanels() 哪怕把别的
-  // 会话根也收了进来，结果与只收当前根**完全一样**，于是
-  // `if (sessionId && rootSession !== sessionId) continue` 这句删掉也测不出来
-  // （变异验证：改成 if (false) continue，287 用例全绿）。按钮文案与正确那个
-  // 区分开，点错根就会记成别的，断言随之报红。
+  // It must carry a clickable button. Previously querySelectorAll here always returned [],
+  // with the reason written as "with multiple panels nothing is clicked, so no button is
+  // needed" — that reason only holds for the document-level gate, and it is fatal for the
+  // session-scoped branch: when the root has no clickable button, approvalPanels()
+  // collects other session roots too, and the result is **exactly** the same as collecting
+  // only the current root, so deleting
+  // `if (sessionId && rootSession !== sessionId) continue` would not be caught
+  // (mutation check: changing it to `if (false) continue` leaves all 287 cases green). The
+  // button label differs from the correct one, so clicking the wrong root is recorded as a
+  // different click and the assertion turns red.
   const otherAllowBtn = {
     textContent: '允许一次（other 会话）',
     innerText: '允许一次（other 会话）',
@@ -140,9 +146,9 @@ export function createHarness(initialCurrent = 'other', autoSelect = true, snaps
       return []
     },
   }
-  // 默认模拟「页面带 [data-conversation-session] 作用域」的新宿主，approvalPanels
-  // 走 scoped 分支。测试可用 setApprovalDom 切成「无作用域 + document 级面板」，
-  // 以覆盖那条从未被走到的 panels.length === 1 闸门。
+  // By default, simulate a new host whose page has the [data-conversation-session] scope, so
+  // approvalPanels takes the scoped branch. Tests can use setApprovalDom to switch to "no
+  // scope + document-level panels" to cover the never-exercised panels.length === 1 gate.
   let scopedRoots = [otherConversationFrame, conversationFrame]
   let loosePanels = [otherApprovalPanel, approvalPanel]
   const document = {
@@ -178,7 +184,8 @@ export function createHarness(initialCurrent = 'other', autoSelect = true, snaps
     constructor(parts) { this.parts = parts }
   }
   const navigatorStub = {
-    // sendBeacon 记录请求体；测试可通过置空 sendBeacon 验证 keepalive fetch 兜底
+    // sendBeacon records the request body; a test can unset sendBeacon to verify the
+    // keepalive-fetch fallback
     sendBeacon: (url, blob) => { beacons.push({ url, body: String(blob?.parts?.[0] ?? '') }); return true },
   }
   const window = {

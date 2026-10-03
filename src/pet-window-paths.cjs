@@ -1,51 +1,56 @@
 /**
- * pet-window 的 userData 目录决策（issue #21 追加建议）。
+ * pet-window userData directory decisions (follow-up to issue #21).
  *
- * 这个目录要同时满足三条互相拉扯的约束：
+ * This directory has to satisfy three constraints that pull against each other:
  *
- *  ① 与宿主的 Electron 隔离。共享默认的 %APPDATA%/Electron 会锁住磁盘缓存、
- *     服务到陈旧响应（历史 bug：桌宠页面继续跑已经删掉的旧右键逻辑），所以
- *     必须是独立目录，不能图省事直接用默认路径。
- *  ② 落在稳定位置。原实现用 %TEMP%/dsh-pet-remielle —— 系统磁盘清理会整目录
- *     删掉，Electron 缓存与渲染层 localStorage 的位置兜底一起丢。
- *  ③ 同一时刻只被一个 pet-window 进程使用。宿主退出靠看门狗探测，快速重启
- *     宿主时新旧实例会重叠；两个进程共用一个 Chromium profile 会重新引出 ①
- *     的陈旧缓存问题。故用占用标记记录 pid，被活跃进程占用时退避到带自己 pid
- *     的兄弟目录。
+ *  ① Isolated from the host's Electron. Sharing the default %APPDATA%/Electron locks the disk
+ *     cache and serves stale responses (historical bug: the desktop pet page kept running the
+ *     old right-click logic that had been deleted), so it must be a separate directory and we
+ *     cannot take the shortcut of using the default path.
+ *  ② In a stable location. The original implementation used %TEMP%/dsh-pet-remielle — system
+ *     disk cleanup deletes the whole directory, taking the Electron cache and the renderer's
+ *     localStorage position fallback with it.
+ *  ③ Used by only one pet-window process at a time. The host relies on a watchdog to detect
+ *     its own exit, so restarting it quickly makes the old and new instances overlap; two
+ *     processes sharing one Chromium profile re-introduce the stale cache problem from ①.
+ *     Hence an occupancy marker recording the pid, falling back to a sibling directory carrying
+ *     our own pid when it is held by a live process.
  *
- * 退避是「尽力而为」：它只保证两个实例不打架，代价是这一次的 localStorage
- * 位置兜底从零开始（宿主持久化的窗口坐标不受影响，走的是另一条链路）。
+ * The fallback is "best effort": it only guarantees the two instances do not fight, at the
+ * cost that this round's localStorage position fallback starts from zero (the host-persisted
+ * window coordinates are unaffected — they travel a different path).
  *
- * 本文件只做纯逻辑、不 require electron，便于直接单测。
+ * This file is pure logic and does not require electron, so it can be unit-tested directly.
  */
 
 const { mkdirSync, readFileSync, rmSync, writeFileSync } = require('node:fs')
 const path = require('node:path')
 
-/** 稳定目录名（与插件同名，便于用户在 %APPDATA% 里辨认）。 */
+/** Stable directory name (same as the plugin, so users can recognize it in %APPDATA%). */
 const DIR_NAME = 'dsh-pet-remielle'
-/** 占用标记文件名。 */
+/** Occupancy marker file name. */
 const LOCK_FILE = 'pet-window.lock'
 
-/** 稳定目录：`<appData>/dsh-pet-remielle`。 */
+/** Stable directory: `<appData>/dsh-pet-remielle`. */
 function baseDirOf(appDataDir) {
   return path.join(appDataDir, DIR_NAME)
 }
 
-/** 退避目录：`<appData>/dsh-pet-remielle-<pid>`（稳定目录被活跃实例占用时用）。 */
+/** Fallback directory: `<appData>/dsh-pet-remielle-<pid>` (used when the stable directory is held by a live instance). */
 function fallbackDirOf(appDataDir, pid) {
   return `${baseDirOf(appDataDir)}-${pid}`
 }
 
-/** 占用标记路径。始终落在稳定目录里，退避实例也要读它。 */
+/** Occupancy marker path. It always lives inside the stable directory, and fallback instances read it too. */
 function lockPathOf(appDataDir) {
   return path.join(baseDirOf(appDataDir), LOCK_FILE)
 }
 
 /**
- * pid 是否仍存活。ESRCH = 进程不存在；EPERM = 存在但无权发信号——后者恰恰
- * 说明进程还在（DSH Desktop 的 NodeService 宿主就是这种），绝不能当成已退出。
- * 判据与 pet-window.cjs 的宿主看门狗保持一致。
+ * Is the pid still alive? ESRCH = the process does not exist; EPERM = it exists but the signal
+ * may not be sent — the latter is precisely proof that the process is still there (the NodeService
+ * host of DSH Desktop is exactly that case) and must never be treated as exited.
+ * The criterion matches the host watchdog in pet-window.cjs.
  */
 function isProcessAlive(pid) {
   const n = Number(pid)
@@ -58,7 +63,7 @@ function isProcessAlive(pid) {
   }
 }
 
-/** 读占用标记里的 pid；文件缺失 / JSON 损坏 / 内容非法一律返回 null（视为空闲）。 */
+/** Read the pid from the occupancy marker; a missing file / corrupt JSON / invalid content all return null (treated as idle). */
 function readOccupantPid(lockPath) {
   try {
     const parsed = JSON.parse(readFileSync(lockPath, 'utf8'))
@@ -69,7 +74,7 @@ function readOccupantPid(lockPath) {
   }
 }
 
-/** 写占用标记（父目录不存在则建）。失败不抛——退化成「不互斥」而不是起不来。 */
+/** Write the occupancy marker (creating the parent directory if needed). Never throws — it degrades to "no mutual exclusion" rather than failing to start. */
 function writeLock(lockPath, pid) {
   try {
     mkdirSync(path.dirname(lockPath), { recursive: true })
@@ -81,8 +86,8 @@ function writeLock(lockPath, pid) {
 }
 
 /**
- * 释放占用标记。只在标记仍属于自己时才删——否则会把接手者的标记误删，让下一次
- * 启动失去互斥保护。
+ * Release the occupancy marker. Delete it only when the marker still belongs to us — otherwise
+ * the successor's marker gets deleted by mistake and the next launch loses mutual exclusion.
  */
 function releaseLock(lockPath, pid) {
   try {
@@ -95,20 +100,21 @@ function releaseLock(lockPath, pid) {
 }
 
 /**
- * 选出本次要用的 userData 目录。
+ * Pick the userData directory for this round.
  *
  * @param {object} options
- * @param {string} options.appDataDir 稳定根目录（Electron 的 `app.getPath('appData')`）
- * @param {number} options.pid 本进程 pid
- * @param {number|null} [options.occupantPid] 占用标记里的 pid（可先读好传入）
- * @param {(pid: number) => boolean} [options.isAlive] 存活探测（默认真探测，测试可注入）
+ * @param {string} options.appDataDir stable root directory (Electron's `app.getPath('appData')`)
+ * @param {number} options.pid this process's pid
+ * @param {number|null} [options.occupantPid] the pid in the occupancy marker (may be read beforehand and passed in)
+ * @param {(pid: number) => boolean} [options.isAlive] liveness probe (real probe by default, injectable in tests)
  * @returns {{dir: string, baseDir: string, lockPath: string, fallback: boolean, occupantPid: number|null, ownsLock: boolean}}
  */
 function resolveUserDataDir({ appDataDir, pid, occupantPid = null, isAlive = isProcessAlive }) {
   const baseDir = baseDirOf(appDataDir)
   const seen = Number(occupantPid)
-  // 只有「别的、还活着的进程占着稳定目录」才退避：占用者是自己上次的残留
-  // （pid 相同）或已经死掉（崩溃残留）都直接复用稳定目录，实现自愈。
+  // Only back off when "another, still-alive process holds the stable directory": an occupant
+  // that is our own leftover (same pid) or already dead (crash residue) just reuses the stable
+  // directory, which makes it self-healing.
   const busy = Number.isInteger(seen) && seen > 0 && seen !== Number(pid) && isAlive(seen)
   return {
     dir: busy ? fallbackDirOf(appDataDir, pid) : baseDir,
@@ -116,8 +122,9 @@ function resolveUserDataDir({ appDataDir, pid, occupantPid = null, isAlive = isP
     lockPath: lockPathOf(appDataDir),
     fallback: busy,
     occupantPid: busy ? seen : null,
-    // 退避者不去动稳定目录的标记：那个标记属于稳定目录的使用者，退避者覆盖它
-    // 会让真正的主人退出时误判「不是我的」而把坏标记留在盘上。
+    // The fallback instance does not touch the stable directory's marker: that marker belongs
+    // to the user of the stable directory, and overwriting it would make the real owner
+    // misjudge "it is not mine" on exit and leave a stale marker on disk.
     ownsLock: !busy,
   }
 }

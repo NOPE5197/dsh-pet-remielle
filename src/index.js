@@ -65,36 +65,36 @@ export const PLUGIN_KEY = 'dsh-pet-remielle'
 export const BALANCE_ENDPOINT = '/plugins/dsh-pet-remielle/balance'
 
 const petEntry = Schema.object({
-  id: Schema.string().required().pattern(PET_ID_RE).description('宠物 id（assets/pets/<id> 目录名）'),
-  name: Schema.string().required().description('宠物显示名'),
-  enabled: Schema.boolean().default(true).description('是否启用该宠物'),
+  id: Schema.string().required().pattern(PET_ID_RE).description('Pet id (the assets/pets/<id> directory name)'),
+  name: Schema.string().required().description('Pet display name'),
+  enabled: Schema.boolean().default(true).description('Whether this pet is enabled'),
 })
 
 export const Config = Schema.object({
-  enabled: Schema.boolean().default(true).description('启用桌宠').volatile(),
-  scale: Schema.number().min(0.5).max(2).step(0.05).default(1).role('slider').description('角色大小').volatile(),
-  mirror: Schema.boolean().default(false).description('左右镜像角色图案').volatile(),
-  bubbleScaleSync: Schema.boolean().default(true).description('消息气泡随桌宠同步缩放（关闭后气泡使用固定大小）').volatile(),
-  bubbleScaleRatio: Schema.number().min(0.5).max(2).step(0.05).default(1).description('气泡相对桌宠的大小（同步缩放时生效，1 = 与桌宠等比）').volatile(),
-  bubbleFixedSize: Schema.number().min(0.5).max(2).step(0.05).default(1).description('气泡固定大小（不随桌宠同步缩放时生效，1 = 基准大小）').volatile(),
-  opacity: Schema.number().min(0.3).max(1).step(0.05).default(1).role('slider').description('透明度').volatile(),
-  locked: Schema.boolean().default(false).description('锁定位置（禁止拖动）').volatile(),
-  paused: Schema.boolean().default(false).description('暂停动画').volatile(),
-  hidden: Schema.boolean().default(false).description('隐藏桌宠').volatile(),
-  includeSubagents: Schema.boolean().default(false).description('允许子 Agent 抢占宠物状态').volatile(),
-  showBubble: Schema.boolean().default(true).description('在宠物上方显示状态气泡（阶段/待办/进度）').volatile(),
-  showBubbleStatus: Schema.boolean().default(true).description('气泡中显示会话状态（任务阶段/进度）').volatile(),
-  showBubbleUsage: Schema.boolean().default(false).description('气泡中显示 DeepSeek 余额/今日已用').volatile(),
-  usageMode: Schema.string().default('ledger').description('今日已用统计模式：小鲸鱼记账（ledger，免令牌）或 实时·令牌（token，需平台会话令牌）').volatile(),
-  platformToken: Schema.string().default('').role('secret').description('DEEPSEEK_PLATFORM_TOKEN 平台会话令牌（实时·令牌模式需要，留空时回落到 DSH 凭据服务）').volatile(),
-  desktopMode: Schema.boolean().default(false).description('桌面悬浮模式：用独立置顶窗口显示宠物（打开时如无 Electron 会自动下载运行时，下载失败则回落页面内）').volatile(),
-  posX: Schema.number().default(null).description('宠物 X 位置（null = 使用默认位置）').volatile(),
-  posY: Schema.number().default(null).description('宠物 Y 位置（null = 使用默认位置）').volatile(),
-  desktopX: Schema.number().default(null).description('桌面悬浮窗 X（自动记忆，坐标与窗口 bounds API 同空间；null = 使用默认位置）').volatile(),
-  desktopY: Schema.number().default(null).description('桌面悬浮窗 Y（自动记忆，坐标与窗口 bounds API 同空间；null = 使用默认位置）').volatile(),
-  activePetId: Schema.string().default(DEFAULT_PET_ID).pattern(PET_ID_RE).description('当前展示的宠物').volatile(),
-  pets: Schema.array(petEntry).default([{ id: DEFAULT_PET_ID, name: '蕾米埃尔', enabled: true }]).description('宠物注册表').volatile(),
-}).description('由 DeepSeek Harness 会话事件驱动的多宠物 Web 桌宠')
+  enabled: Schema.boolean().default(true).description('Enable desktop pet').volatile(),
+  scale: Schema.number().min(0.5).max(2).step(0.05).default(1).role('slider').description('Character size').volatile(),
+  mirror: Schema.boolean().default(false).description('Mirror the character horizontally').volatile(),
+  bubbleScaleSync: Schema.boolean().default(true).description('Scale the message bubble together with the desktop pet (when off, the bubble uses a fixed size)').volatile(),
+  bubbleScaleRatio: Schema.number().min(0.5).max(2).step(0.05).default(1).description('Bubble size relative to the desktop pet (applies when sync scaling is on, 1 = same ratio as the pet)').volatile(),
+  bubbleFixedSize: Schema.number().min(0.5).max(2).step(0.05).default(1).description('Fixed bubble size (applies when sync scaling is off, 1 = base size)').volatile(),
+  opacity: Schema.number().min(0.3).max(1).step(0.05).default(1).role('slider').description('Opacity').volatile(),
+  locked: Schema.boolean().default(false).description('Lock position (drag disabled)').volatile(),
+  paused: Schema.boolean().default(false).description('Pause animation').volatile(),
+  hidden: Schema.boolean().default(false).description('Hide desktop pet').volatile(),
+  includeSubagents: Schema.boolean().default(false).description('Allow sub-agents to take over the pet state').volatile(),
+  showBubble: Schema.boolean().default(true).description('Show the status bubble above the pet (stage / todo / progress)').volatile(),
+  showBubbleStatus: Schema.boolean().default(true).description('Show the session status in the bubble (task stage / progress)').volatile(),
+  showBubbleUsage: Schema.boolean().default(false).description('Show the DeepSeek balance / today\'s usage in the bubble').volatile(),
+  usageMode: Schema.string().default('ledger').description('How today\'s usage is measured: Ledger (ledger, no token) or Real-time token (token, needs a platform session token)').volatile(),
+  platformToken: Schema.string().default('').role('secret').description('DEEPSEEK_PLATFORM_TOKEN platform session token (required by Real-time token mode; when empty it falls back to the DSH credential service)').volatile(),
+  desktopMode: Schema.boolean().default(false).description('Desktop floating mode: show the pet in a separate always-on-top window (if Electron is missing when enabled, the runtime is downloaded automatically; if that download fails it falls back to the in-page pet)').volatile(),
+  posX: Schema.number().default(null).description('Pet X position (null = use the default position)').volatile(),
+  posY: Schema.number().default(null).description('Pet Y position (null = use the default position)').volatile(),
+  desktopX: Schema.number().default(null).description('Desktop floating window X (remembered automatically, same coordinate space as the window bounds API; null = use the default position)').volatile(),
+  desktopY: Schema.number().default(null).description('Desktop floating window Y (remembered automatically, same coordinate space as the window bounds API; null = use the default position)').volatile(),
+  activePetId: Schema.string().default(DEFAULT_PET_ID).pattern(PET_ID_RE).description('The pet currently displayed').volatile(),
+  pets: Schema.array(petEntry).default([{ id: DEFAULT_PET_ID, name: 'Remielle', enabled: true }]).description('Pet registry').volatile(),
+}).description('A multi-pet web desktop pet driven by DeepSeek Harness session events')
 
 export const defaults = Object.freeze({
   enabled: true,
@@ -180,17 +180,20 @@ export function createSettingsScope(ctx, config = {}, eventCtx = ctx) {
   const get = () => readConfig(config)
   if (typeof forms?.register === 'function') {
     const scope = forms.register(PLUGIN_KEY, Config, { base: publicConfig(get()), applies: 'live' })
-    // DSH 的 resolve 流程是 `schema(base+section)`：0.4.3 起 schema 字段带
-    // .volatile()（schemastery 会把每个字段解析成 cosmokit volatile 包装对象，
-    // 值藏在 wrapper.get() 里），而 DSH 的 scope.get() 原样返回这层包装——
-    // 插件直接属性访问拿到的是对象不是值（实测 pets 变非数组、usageMode 变
-    // '[object Object]'，宠物列表因此清空）。这里在返回给插件内部之前统一
-    // 解包回真实值；watch/update 仍走 DSH 原实现。
+    // DSH's resolve path is `schema(base+section)`: since 0.4.3 schema fields carry
+    // .volatile() (schemastery resolves every field into a cosmokit volatile wrapper
+    // object with the value hidden inside wrapper.get()), and DSH's scope.get()
+    // returns that wrapper as-is — so plain property access from the plugin gets
+    // an object instead of the value (observed: pets became a non-array, usageMode
+    // became '[object Object]', which emptied the pet list). Unwrap everything back
+    // to real values before handing it to plugin code; watch/update keep DSH's own
+    // implementation.
     return {
       ...scope,
       get: () => readConfig(scope.get()),
-      // watch 回调拿到的 next/prev 同样是 DSH resolve 出来的 wrapper 层（见上），
-      // 一并解包，否则 `next.desktopMode === false` 这类判断永远不成立。
+      // The next/prev values handed to the watch callback are the same DSH-resolved
+      // wrapper layer (see above), so unwrap them too — otherwise checks like
+      // `next.desktopMode === false` never hold.
       watch: (listener) => scope.watch((next, prev) => listener(readConfig(next), readConfig(prev))),
     }
   }
@@ -242,9 +245,12 @@ async function readJsonBody(req) {
 }
 
 /**
- * 允许通过 config 端点 PATCH 的字段。其余 schema 字段（`activePetId` / `pets`）走宠物
- * 注册表端点，不进这里。字段清单散在 schema / defaults / publicConfig / 本白名单四处，
- * 加字段时最容易漏掉某一处——`test/host-snapshot.test.js` 用集合差把四处钉在一起。
+ * Fields that may be PATCHed through the config endpoint. The remaining schema
+ * fields (`activePetId` / `pets`) go through the pet registry endpoint and are
+ * not listed here. The field list is spread across four places — schema /
+ * defaults / publicConfig / this allowlist — and adding a field most easily
+ * misses one of them; `test/host-snapshot.test.js` pins all four together with
+ * a set difference.
  */
 export const CONFIG_PATCH_FIELDS = Object.freeze([
   'enabled', 'scale', 'mirror', 'bubbleScaleSync', 'bubbleScaleRatio', 'bubbleFixedSize',
@@ -347,16 +353,21 @@ export function createSessionOpenHandler({ notify, onUndelivered }) {
         kind: 'session-action',
         sessionId,
         approve: body.approve === true,
-        // 完成卡点击：网页端需要 completed 决定是否顺带 ack
+        // Completion-card click: the web client needs `completed` to decide whether
+        // to acknowledge along with it
         completed: body.completed === true,
       }
-      // delivered=false：当前没有任何网页客户端订阅 SSE，桌面“允许一次”的
-      // 广播无人接收——调用方可以此区分成功与静默丢失。
+      // delivered=false: no web client is currently subscribed to SSE, so the
+      // desktop "allow once" broadcast has no receiver — the caller can tell
+      // success from silent loss this way.
       const delivered = notify(action) > 0
-      // 没人在线：暂存最新一条，下一个 SSE 订阅者握手时重放（拉起兜底）。
-      // approve:true 不暂存——审批动作时效性强，网页长时间离线后重连时
-      // 自动批准可能已过时的请求，风险大于收益；宁可不重放（桌面端可重新
-      // 发起），也不延迟执行。跳转类（approve:false）无此风险，照常暂存。
+      // Nobody online: stash the newest action and replay it to the next SSE
+      // subscriber during the stream handshake (cold-start fallback).
+      // approve:true is never stashed — approvals are highly time-sensitive, and
+      // auto-approving a possibly stale request after a long offline spell of the
+      // web client risks more than it gains; better not to replay (the desktop
+      // client can raise it again) than to delay execution. Navigation actions
+      // (approve:false) carry no such risk, so they are stashed as usual.
       if (!delivered && !action.approve && typeof onUndelivered === 'function') onUndelivered(action)
       jsonResponse(res, 200, { ok: true, delivered })
     } catch (error) {
@@ -404,11 +415,14 @@ export function createCurrentSessionStore({ ttlMs = 10 * 60 * 1000, now = () => 
 
 /**
  * Web-client current-session uplink: POST { sessionId, clientId } (empty string clears).
- * Fire-and-forget，但值真的变化时通过 `accept` 的第二个参数把 changed 交给调用方：
- * 桌面窗的「当前会话已读」完全依赖宿主快照里的 `currentSessionId`，这里不主动广播的话
- * 它只能等下一次任意广播、或自己 5 秒轮询，完成卡绿点因此比网页端慢半拍。
- * @param accept - (sessionId, { changed, clientId }) => void；changed = 该标签页上报值不同。
- * @param store - 可注入的按标签页状态存储；省略时为该 handler 独立创建。
+ * Fire-and-forget, but when the value really changes the second argument of
+ * `accept` hands `changed` to the caller: the desktop window's "current session
+ * read" state depends entirely on `currentSessionId` in the host snapshot, so
+ * without an explicit broadcast here it would have to wait for the next
+ * arbitrary broadcast or for its own 5-second poll, making the completion-card
+ * green dot lag half a beat behind the web client.
+ * @param accept - (sessionId, { changed, clientId }) => void; changed = this tab's reported value differs.
+ * @param store - injectable per-tab state store; a dedicated one is created for this handler when omitted.
  */
 export function createSessionCurrentHandler({ accept, store = createCurrentSessionStore() }) {
   return async (req, res) => {
@@ -431,9 +445,12 @@ export function createSessionCurrentHandler({ accept, store = createCurrentSessi
 }
 
 /**
- * 宿主主题取值归一：只认 'dark' / 'light'，空值表示「清除上报」（桌面窗回落系统主题）。
- * 其他值直接报错而不是静默当空——客户端笔误（如 'Dark'）会安静地把配色带歪，
- * 而这类错误在两端截图对比前几乎看不出来。
+ * Normalizing the host theme value: only 'dark' / 'light' are accepted; an
+ * empty value means "clear the report" (the desktop window falls back to the
+ * system theme). Any other value raises an error instead of being silently
+ * treated as empty — a client typo (say 'Dark') would quietly skew the palette,
+ * and that kind of mistake is nearly invisible until the two clients are
+ * compared side by side in screenshots.
  */
 export function normalizeHostTheme(value) {
   if (value === '' || value === undefined || value === null) return ''
@@ -442,12 +459,15 @@ export function normalizeHostTheme(value) {
 }
 
 /**
- * Web-client host-theme uplink: POST { theme: 'dark' | 'light' | '', clientId }（空串=清除）。
- * 桌面悬浮窗是独立 Electron 窗口，读不到宿主页面的 body[data-ds-dark-theme]，
- * 主题只能由网页端上报：有网页在线时桌面窗跟随宿主主题，两端菜单/气泡同色；
- * 没有网页在线（或上报过期）时快照里不带 hostTheme，桌面窗回落系统主题。
- * fire-and-forget，值真变化时通过 `accept` 的第二个参数把 changed 交给调用方广播。
- * @param accept - (theme, { changed, clientId }) => void；changed = 有效主题与上次不同。
+ * Web-client host-theme uplink: POST { theme: 'dark' | 'light' | '', clientId } (empty string = clear).
+ * The desktop floating window is a standalone Electron window and cannot read the
+ * host page's body[data-ds-dark-theme], so the theme can only be reported by the
+ * web client: while a web client is online the desktop window follows the host
+ * theme and both clients share the same menu/bubble colors; with no web client
+ * online (or an expired report) the snapshot carries no hostTheme and the desktop
+ * window falls back to the system theme. Fire-and-forget, and when the value
+ * really changes the second argument of `accept` hands `changed` to the caller to broadcast.
+ * @param accept - (theme, { changed, clientId }) => void; changed = the effective theme differs from the last one.
  */
 export function createThemeHandler({ accept, ttlMs = 10 * 60 * 1000, now = () => Date.now() }) {
   const reports = new Map()
@@ -513,12 +533,13 @@ export async function scanPetDirs(root) {
       if (files.includes(PET_MANIFEST)) {
         manifest = parsePetManifest(await readFile(join(dir, PET_MANIFEST), 'utf8'))
       }
-      // 自动统计作品图数量：pics/<n>.png 有多少张就画多少张，
-      // 直接往 pics/ 文件夹放图即可，无需手动改 pet-manifest.json。
+      // Count artwork pics automatically: however many pics/<n>.png files there
+      // are is how many the gallery shows, so dropping images straight into the
+      // pics/ folder is enough — no manual edit of pet-manifest.json needed.
       let pics = 0
       try {
         pics = (await readdir(join(dir, 'pics'))).filter((f) => /^\d{1,3}\.png$/i.test(f)).length
-      } catch { /* 无 pics 目录 */ }
+      } catch { /* no pics directory */ }
       if (pics > 0) manifest.pics = pics
     } catch {
       gifs = []
@@ -613,10 +634,13 @@ export function createAssetsHandler(petsRoot) {
 }
 
 /**
- * 一个会话的标题：优先 `sessionTitle` 服务的权威口径；服务未加载或被隔离时，
- * cordis 的属性访问会直接抛错（可选链拦不住），静默失败就等于没标题——那就回落
- * 到直接折会话日志。插件加载前已写入标题的老会话（DSH 重启后恢复运行的会话）
- * 不会重放 `session/title` 事件，标题只在日志里。
+ * A session's title: prefer the authoritative value from the `sessionTitle`
+ * service; when that service is not loaded or is isolated, cordis's property
+ * access throws outright (optional chaining cannot catch it), and failing
+ * silently means no title at all — so fall back to deriving one from the
+ * session log directly. Old sessions whose title was written before the plugin
+ * loaded (sessions resumed after a DSH restart) never replay `session/title`,
+ * so their title only exists in the log.
  */
 export function readSessionTitle(ctx, sessionId) {
   let session
@@ -630,8 +654,9 @@ export function readSessionTitle(ctx, sessionId) {
     const title = ctx.sessionTitle?.get?.(session)?.title
     const text = title ? String(title).trim() : ''
     if (text) return text
-  } catch { /* 服务不可用：继续走日志折取 */ }
-  // 折取本身也可能抛（`snapshotEvents()` 的实现细节），不能让异常冒到快照构建。
+  } catch { /* service unavailable: fall through to the log-derived title */ }
+  // Deriving the title can itself throw (an implementation detail of
+  // `snapshotEvents()`); the exception must not escape into snapshot building.
   try {
     return titleFromSessionLog(session)
   } catch {
@@ -640,13 +665,17 @@ export function readSessionTitle(ctx, sessionId) {
 }
 
 /**
- * 关掉「响应子 Agent」时，把队列里仍留着的子会话完成卡一并撤掉。那些卡是开关还开着时
- * 入队的，网页端那层合成卡过滤管不到宿主队列，会一直显示到被点掉或该会话重新活动。
- * 判定走宿主自己记录的 id 集合而不是 live Session：短命子会话往往在关开关前就已 dispose，
- * 那时取不到 Session，靠它判断会漏清。
- * @param completionQueue - 宿主完成提醒队列（key 是真实 sessionId）。
- * @param isSubagentSession - 该 sessionId 是否属于子会话。
- * @returns 是否真的删掉了条目（调用方据此决定要不要广播）。
+ * When "Respond to sub-agents" is switched off, also drop the sub-session
+ * completion cards still sitting in the queue. Those cards were enqueued while
+ * the switch was still on, and the web client's synthetic-card filter cannot
+ * reach the host queue, so they would stay visible until clicked away or until
+ * that session becomes active again. The decision uses the host's own recorded
+ * id set rather than a live Session: short-lived sub-sessions are often
+ * disposed before the switch is turned off, so no Session can be fetched then
+ * and deciding by it would miss entries.
+ * @param completionQueue - the host completion-reminder queue (keys are real sessionIds).
+ * @param isSubagentSession - whether that sessionId belongs to a sub-session.
+ * @returns whether any entry was really removed (the caller decides whether to broadcast).
  */
 export function dropSubagentCompletions(completionQueue, isSubagentSession) {
   let dropped = false
@@ -782,27 +811,37 @@ export function createStateSnapshot({ getLatest, getPulse, getConfig, getPetId, 
       opacity: config.opacity,
       locked: config.locked === true,
       bubble: config.showBubble !== false,
-      // 客户端统一读 showBubble（与配置字段同名）；bubble 为旧字段别名，保留兼容
+      // Clients read showBubble uniformly (same name as the config field);
+      // bubble is the legacy alias, kept for compatibility
       showBubble: config.showBubble !== false,
       showBubbleStatus: config.showBubbleStatus !== false,
       showBubbleUsage: config.showBubbleUsage === true,
       usageMode: config.usageMode ?? 'ledger',
-      // platformToken 不进 /state 快照：快照经 SSE 广播给所有订阅者（任意网页标签
-      // 页、桌面窗），明文带令牌等于把平台凭证散给每个连上快照的页面。
-      // /config 也只返回 clientConfig：设置页知道令牌是否已配置，但不会收到令牌明文。
-      // balance 服务仍从 settings.get() 读取令牌；令牌写入只走 /config 的 PATCH。
+      // platformToken does not go into the /state snapshot: the snapshot is
+      // broadcast over SSE to every subscriber (any web tab, the desktop
+      // window), so carrying the token in plain text would scatter the platform
+      // credential to every page that receives the snapshot.
+      // /config also only returns clientConfig: the settings page learns whether
+      // a token is configured, but never receives the token itself.
+      // The balance service still reads the token via settings.get(); the only
+      // way to write it is a PATCH to /config.
       paused: config.paused === true,
       hidden: config.hidden === true,
       desktopActive: desktopActiveOf(),
-      // 网页端订阅者数（不含桌宠窗）：桌面端据此判断「有没有网页开着」，
-      // 待机气泡不再重复打开系统浏览器。
+      // Number of web-client subscribers (excluding the desktop pet window): the
+      // desktop client uses it to tell whether a web page is open, so the idle
+      // bubble stops reopening the system browser.
       webClients: webClientsOf(),
       desktopMode: config.desktopMode === true,
       petId: petIdOf() ?? DEFAULT_PET_ID,
-      // 网页端上报的「用户正在看的会话」；空串=清除，回落为缺失（JSON 序列化时省略该字段）
+      // The "session the user is looking at", reported by the web client; an
+      // empty string clears it and falls back to missing (omitted during JSON
+      // serialization)
       currentSessionId: currentOf() || undefined,
-      // 网页端上报的宿主主题（'dark' / 'light'）；字段缺失=没有网页在线或上报过期，
-      // 桌面悬浮窗据此回落系统主题。桌面窗是独立窗口，本身读不到宿主页面主题。
+      // The host theme reported by the web client ('dark' / 'light'); a missing
+      // field means no web client is online or the report expired, and the
+      // desktop floating window falls back to the system theme. The desktop
+      // window is a separate window and cannot read the host page's theme itself.
       hostTheme: themeOf() || undefined,
       posX: config.posX ?? null,
       posY: config.posY ?? null,
@@ -810,7 +849,7 @@ export function createStateSnapshot({ getLatest, getPulse, getConfig, getPetId, 
       state: source?.state ?? PetState.IDLE,
       mood: activePulse?.mood ?? source?.mood ?? '06',
       phase: source?.phase ?? 'no-session',
-      message: activePulse?.message ?? source?.message ?? '蕾米埃尔待机中~',
+      message: activePulse?.message ?? source?.message ?? 'Remielle is idling~',
       detail: activePulse?.detail ?? source?.detail ?? 'DSH',
       project: base?.project ?? undefined,
       task: base?.task ?? undefined,
@@ -839,8 +878,10 @@ export function createStateSnapshot({ getLatest, getPulse, getConfig, getPetId, 
  */
 export function createStreamHub({ serve, onClientsChanged }) {
   const clients = new Map() // res -> { client: 'pet' | 'web' }
-  // 订阅者集合变化（接入/断开/失败清理）时通知调用方：快照里的 webClients 就来自这里，
-  // 没有它的话「有没有网页开着」得等下一次广播才知道（待机气泡、自动已读都要用它）。
+  // Notify the caller whenever the subscriber set changes (connect / disconnect /
+  // failed cleanup): the snapshot's webClients comes from here, and without it
+  // "is a web page open" would only be known at the next broadcast (both the idle
+  // bubble and auto-read rely on it).
   const notifyClientsChanged = typeof onClientsChanged === 'function' ? onClientsChanged : () => {}
   const drop = (res) => {
     if (!clients.delete(res)) return
@@ -901,7 +942,7 @@ export function createStreamHub({ serve, onClientsChanged }) {
     get size() {
       return clients.size
     },
-    /** 网页端订阅者数（不含桌宠窗）：判断「有没有网页开着」的权威信号。 */
+    /** Number of web-client subscribers (excluding the desktop pet window): the authoritative signal for "is a web page open". */
     get webSize() {
       let total = 0
       for (const meta of clients.values()) if (meta.client !== 'pet') total++
@@ -959,29 +1000,38 @@ function mount(ctx, config = {}, eventCtx = ctx) {
     state: PetState.IDLE,
     mood: '06',
     phase: 'plugin-start',
-    stage: '待机中',
-    message: '蕾米埃尔待机中~',
-    detail: 'DSH · 等待下一次任务',
+    stage: 'Idle',
+    message: 'Remielle is idling~',
+    detail: 'DSH · waiting for the next task',
   })
   let pulse = null
-  // 网页端按标签页上报当前会话（空串=清除）：只存内存，随下次快照/SSE 自然带出，
-  // 上报本身 fire-and-forget，不触发 broadcast。每个标签页独立保存，避免隐藏页的
-  // 清除请求抹掉可见页；页面崩溃/被杀时仍以 TTL 兜底，防止陈旧 currentSessionId
-  // 持续误置顶或误自动 ack。TTL 取 10 分钟，远大于正常浏览间隔。
+  // The web client reports the current session per tab (empty string = clear):
+  // kept in memory only and carried out naturally with the next snapshot/SSE; the
+  // report itself is fire-and-forget and triggers no broadcast. Each tab stores
+  // it independently so a hidden tab's clear cannot wipe the visible tab; when a
+  // page crashes or is killed the TTL still backstops it, preventing a stale
+  // currentSessionId from keeping on mis-topping or mis-auto-acking. The TTL is
+  // 10 minutes, far larger than the normal interval between tab switches.
   const CURRENT_SESSION_TTL_MS = 10 * 60 * 1000
   const currentSessionStore = createCurrentSessionStore({ ttlMs: CURRENT_SESSION_TTL_MS })
-  // 网页端上报的宿主主题（'dark' / 'light'，空串=清除/未上报）：桌面悬浮窗是独立
-  // 窗口，拿不到宿主页面的 body[data-ds-dark-theme]，只能靠这条上报与网页端同色。
-  // 与 currentSessionId 同理带 TTL：页面被杀时 pagehide 的清除上报不会执行，没有
-  // TTL 桌面窗会一直挂着过期的宿主配色。主题变化比会话切换稀疏得多（网页端另有
-  // 5 分钟心跳续期），TTL 留 10 分钟足够宽裕。
+  // The host theme reported by the web client ('dark' / 'light'; empty string =
+  // cleared / never reported): the desktop floating window is a separate window
+  // and cannot reach the host page's body[data-ds-dark-theme], so this report is
+  // the only way to match the web client's colors.
+  // Like currentSessionId it carries a TTL: when a page is killed its pagehide
+  // clear-report never runs, and without a TTL the desktop window would keep
+  // hanging on an expired host palette. Theme changes are far sparser than
+  // session switches (the web client also renews with a 5-minute heartbeat), so
+  // a 10-minute TTL is comfortably enough.
   const HOST_THEME_TTL_MS = 10 * 60 * 1000
   let reportedHostTheme = ''
   let reportedHostThemeAt = 0
   // Completed turns stay visible until the user opens their conversation.
   const completionQueue = new Map()
-  // 事件流里见过并被判定为子会话的 sessionId。关掉「响应子 Agent」时据此清掉队列里的
-  // 残留完成卡——不能靠 live Session 判断：短命子会话往往在关开关前就已 dispose。
+  // sessionIds seen in the event stream and judged to be sub-sessions. When
+  // "Respond to sub-agents" is switched off this set drives the cleanup of the
+  // leftover completion cards in the queue — it cannot rely on a live Session:
+  // short-lived sub-sessions are often disposed before the switch is turned off.
   const subagentSessionIds = new Set()
 
   const onMessage = (message) => {
@@ -990,11 +1040,12 @@ function mount(ctx, config = {}, eventCtx = ctx) {
       if (message.state === PetState.SUCCESS && message.sessionId) {
         completionQueue.set(message.sessionId, {
           sessionId: message.sessionId,
-          // 与 reducer 的 SUCCESS 文案同池（status-copy.js success）；种子取
-          // sessionId 保持确定性（Date.now() 每次随机）。允许与 reducer/client
-          // 端变体不同，池一致性由防漂移测试保证。
+          // Same copy pool as the reducer's SUCCESS text (status-copy.js success);
+          // the seed is the sessionId to stay deterministic (Date.now() differs
+          // every time). Differing from the reducer/client-side variant is
+          // allowed; pool consistency is guaranteed by the anti-drift test.
           message: message.message ?? statusCopy('success', message.sessionId ?? ''),
-          detail: message.detail ?? '任务已完成',
+          detail: message.detail ?? 'Task complete',
           project: message.project,
           title: message.title,
           task: message.task,
@@ -1014,7 +1065,7 @@ function mount(ctx, config = {}, eventCtx = ctx) {
         state: message.resumeState ?? PetState.IDLE,
         mood: message.resumeMood ?? '06',
         phase: message.phase ?? 'pulse-end',
-        message: message.resumeMessage ?? '蕾米埃尔待机中~',
+        message: message.resumeMessage ?? 'Remielle is idling~',
         detail: message.resumeDetail ?? 'DSH',
         task: latest.task,
         progress: latest.progress,
@@ -1063,10 +1114,12 @@ function mount(ctx, config = {}, eventCtx = ctx) {
     return refreshing
   }
 
-  // webClients 要在快照里读 hub，而 hub 又要靠这份快照做 serve —— 用延迟绑定打破这个环。
+  // webClients has to read the hub from inside the snapshot, while the hub needs
+  // that same snapshot to serve — break the cycle with a late binding.
   let hubRef = null
-  // 网页端上报的当前会话：按标签页独立 TTL，宿主退出/页面崩溃后不残留僵尸 id。
-  // 快照与「当前会话失败即已读」判定共用这一个口径。
+  // The current session reported by the web client: per-tab TTL, so no zombie
+  // ids linger after a host exit or a page crash. The snapshot and the
+  // "failure in the current session counts as read" check share this one source.
   const currentSessionNow = () => currentSessionStore.current()
   const serveState = createStateSnapshot({
     getLatest: () => latest,
@@ -1085,20 +1138,25 @@ function mount(ctx, config = {}, eventCtx = ctx) {
 
   const hub = createStreamHub({
     serve: serveState,
-    // 订阅者接入/断开都要重算一次快照：webClients 变了，而待机气泡与自动已读都读它。
+    // Recompute the snapshot whenever a subscriber connects or disconnects:
+    // webClients changed, and both the idle bubble and auto-read read it.
     onClientsChanged: () => { if (hubRef) hubRef.broadcast() },
   })
   hubRef = hub
-  // 无网页在线时的点击卡兜底：只保留最新一条，下一个 SSE 订阅者握手时重放
+  // Clicked-card fallback for when no web client is online: only the newest
+  // action is kept, replayed to the next SSE subscriber during the handshake
   const pendingActions = createPendingActionStore()
 
   let desktopActive = false
 
   // Observe every DSH session. Loader entries may live inside a scoped
   // composition, so use the unscoped root bus and dispose explicitly.
-  // 完成提醒的清理不依赖 reducer 的“选中渲染”：会话重新开工或被销毁时，
-  // 直接在这里清队列——否则存在更高优先级锚点遮蔽时，旧完成卡会在中止轮次后复活；
-  // one-shot 子 Agent 完成即销毁的场景下绿点也会永久残留。
+  // Completion-reminder cleanup does not depend on the reducer's "selected
+  // render": when a session restarts or is destroyed the queue is cleared right
+  // here — otherwise, while a higher-priority anchor masks it, an old
+  // completion card would come back to life after an aborted turn; in the
+  // one-shot sub-agent case (destroyed as soon as it finishes) the green dot
+  // would also linger forever.
   const completionSessionIdOf = (session) => {
     const id = String(session?.header?.id ?? session?.id ?? '')
     return id || null
@@ -1106,7 +1164,9 @@ function mount(ctx, config = {}, eventCtx = ctx) {
   const dropCompletion = (session) => {
     const id = completionSessionIdOf(session)
     if (!id || !completionQueue.delete(id)) return
-    // 记账集合跟着队列走：卡没了就不必再记着它是子会话，集合大小因此与队列同阶。
+    // The bookkeeping set follows the queue: once the card is gone there is no
+    // need to remember that it was a sub-session, so the set stays the same
+    // order of magnitude as the queue.
     subagentSessionIds.delete(id)
     hub.broadcast()
   }
@@ -1115,19 +1175,22 @@ function mount(ctx, config = {}, eventCtx = ctx) {
     const hadError = reducer.states().some((entry) => entry.sessionId === sessionId && entry.state === PetState.ERROR)
     if (!hadError) return
     for (const message of reducer.dismissError(sessionId)) onMessage(message)
-    // #render 只在选中会话签名变化时发消息；后台 ERROR 已读时可能返回 []，
-    // 但 states() 已经少了这张卡，必须照样推快照。
+    // #render only emits a message when the selected-session signature changes, so
+    // dismissing a background ERROR may return [], but states() has already lost
+    // that card — the snapshot must be pushed anyway.
     hub.broadcast()
   }
   const offEvent = eventCtx.on('session/event', (session, event) => {
     const eventType = String(event?.type ?? '')
-    // 子会话 id 记账：供「响应子 Agent」关闭时清理残留完成卡（见 subagentSessionIds）。
+    // Sub-session id bookkeeping: used to clean up leftover completion cards when
+    // "Respond to sub-agents" is switched off (see subagentSessionIds).
     if (isSubagent(session)) {
       const subagentId = completionSessionIdOf(session)
       if (subagentId) subagentSessionIds.add(subagentId)
     }
-    // 看门狗活跃度：任何事件都刷新该会话的「最近活动」时间戳；
-    // turn/end 已收尾回合，条目随之移除，不再参与悬挂判定。
+    // Watchdog liveness: any event refreshes that session's "last activity"
+    // timestamp; a turn/end has wrapped the turn up, so the entry is removed and
+    // no longer takes part in hang detection.
     watchdog.feed(completionSessionIdOf(session))
     if (eventType === 'turn/end') watchdog.end(completionSessionIdOf(session))
     if (eventType === 'turn/start' || eventType === 'tool/call') dropCompletion(session)
@@ -1137,7 +1200,8 @@ function mount(ctx, config = {}, eventCtx = ctx) {
       && sessionId
       && sessionId === currentSessionNow()
       && reducer.states().some((entry) => entry.sessionId === sessionId && entry.state === PetState.ERROR)
-    // 失败发生时人已经在这个对话里：当场已读，不进粉圈提醒。
+    // The failure happens while the person is already in that conversation: it
+    // counts as read on the spot and does not enter the pink mark.
     if (currentFailed) outgoing.push(...reducer.dismissError(sessionId))
     for (const message of outgoing) onMessage(message)
     if (outgoing.length || currentFailed || eventType === 'session/title') hub.broadcast()
@@ -1151,14 +1215,19 @@ function mount(ctx, config = {}, eventCtx = ctx) {
     }
   }, { global: true })
 
-  // Turn 悬挂看门狗：GUI 强杀会话时 DSH 不向 live 总线补发 turn/end（仅
-  // 冷读日志时 repair），事件流戛然而止，reducer 永远停在 THINKING「分析阶段」。
-  // 每 30 秒扫描一次：THINKING/WORKING 的会话超过 3 分钟无任何事件，即合成
-  // turn/end{kind:'aborted'} 复用现有收尾路径回 IDLE「已停止」（不传 seq，
-  // record.lastSeq 保持不变；stopped 文案种子经 status-copy 的 seedNumber 稳定回落）。
-  // WAITING/ERROR 可合法等待很久（审批/等待回答），不判悬挂。
-  // turn 序号硬编码 0 是安全的：reducer 的 aborted 分支只读 reason.kind、
-  // 不校验 turn 序号（见 pet-reducer.js 的 turn/end 分支）。
+  // Turn-hang watchdog: when the GUI force-kills a session DSH does not re-emit
+  // turn/end on the live bus (it only repairs when cold-reading the log), so the
+  // event stream stops abruptly and the reducer stays stuck in THINKING
+  // ("Analyzing") forever. Scan every 30 seconds: a session in THINKING/WORKING
+  // with no event for more than 3 minutes gets a synthesized
+  // turn/end{kind:'aborted'} that reuses the existing wrap-up path to return to
+  // IDLE "Stopped" (no seq is passed, so record.lastSeq stays unchanged; the
+  // stopped copy seed falls back stably through status-copy's seedNumber).
+  // WAITING/ERROR may legitimately wait a long time (approval / waiting for an
+  // answer), so they are never treated as hung.
+  // Hard-coding turn number 0 is safe: the reducer's aborted branch only reads
+  // reason.kind and does not validate the turn number (see the turn/end branch of
+  // pet-reducer.js).
   const watchdog = createTurnWatchdog()
   const watchdogTimer = setInterval(() => {
     for (const sessionId of watchdog.tick(reducer.states())) {
@@ -1173,7 +1242,7 @@ function mount(ctx, config = {}, eventCtx = ctx) {
       }
     }
   }, TURN_WATCHDOG_INTERVAL_MS)
-  watchdogTimer.unref?.() // 双保险：即使宿主未走下方 dispose 钩子也不阻止进程退出
+  watchdogTimer.unref?.() // belt and braces: never block process exit even if the host skips the dispose hook below
 
   const unwatch = settings.watch((next) => {
     const includeSubagents = next.includeSubagents === true
@@ -1182,13 +1251,16 @@ function mount(ctx, config = {}, eventCtx = ctx) {
       onMessage(message)
       hub.broadcast()
     }
-    // 开关由开转关：队列里此前入队的子会话完成卡要一起撤掉（网页端过滤只管合成卡）。
+    // The switch went from on to off: sub-session completion cards enqueued while
+    // it was on must be withdrawn too (the web client's filter only covers
+    // synthetic cards).
     if (wasIncluding && !includeSubagents) {
       if (dropSubagentCompletions(completionQueue, (sessionId) => subagentSessionIds.has(sessionId))) {
         hub.broadcast()
       }
     }
-    // 用量模式切换时使余额缓存失效，下次请求立即按新模式计算
+    // Invalidate the balance cache when the usage mode switches so the next request
+    // is computed with the new mode immediately
     const mode = normalizeUsageMode(next.usageMode)
     if (mode !== usageModeNow) {
       usageModeNow = mode
@@ -1201,8 +1273,9 @@ function mount(ctx, config = {}, eventCtx = ctx) {
   void refreshRegistry()
 
   if (typeof ctx.inject === 'function') {
-    // 只注入 webServer。写上 connection 会让整个回调（内含全部 20 条路由注册）
-    // 在没有该服务的宿主上不执行，插件静默全瘫——见下方 dshWebUrl 的说明。
+    // Only webServer is injected. Adding connection would make the entire callback
+    // (which registers all 20 routes) not run on hosts without that service, and
+    // the plugin would silently go completely limp — see the dshWebUrl note below.
     ctx.inject(['webServer'], (httpCtx) => {
       const port = httpCtx.webServer.port
 
@@ -1218,15 +1291,19 @@ function mount(ctx, config = {}, eventCtx = ctx) {
       }
       const origin = `http://127.0.0.1:${port}`
       const desktopUrl = `${origin}${PET_VIEW_ENDPOINT}`
-      // DSH 0.1.2-alpha.1 起 Web 壳根路径要带进程 token，走 connection 的
-      // authenticatedUrl。connection 是**可选依赖**：上一版把它写进
-      // ctx.inject(['webServer', 'connection'])，而 cordis 的 inject 要所有服务
-      // 都可用才执行回调——这一整个块里包着全部 20 条 webServer.register，于是
-      // 宿主一旦没有 connection 服务，插件不是某个端点坏，而是整条路由表都不
-      // 注册，且没有任何报错。commit 的本意只是让 desktop url 带 token，不该
-      // gate 整张表，故这里改回只注入 webServer，connection 走 get() 取。
-      // 同时保留容错：authenticatedUrl 抛错时回落裸 origin，别让一次取 URL
-      // 的异常把整个桌面窗启动流程带走。
+      // Since DSH 0.1.2-alpha.1 the web shell root path needs a process token,
+      // so we go through connection's authenticatedUrl. connection is an
+      // **optional dependency**: the previous version wrote it into
+      // ctx.inject(['webServer', 'connection']), but cordis's inject only runs
+      // the callback when every service is available — and this whole block holds
+      // all 20 webServer.register calls, so on a host without a connection service
+      // the plugin does not merely lose one endpoint, it fails to register the
+      // entire route table, with no error at all. The commit's intent was only to
+      // put the token on the desktop url; it must not gate the whole table, so
+      // injection goes back to webServer only and connection is fetched via get().
+      // Fault tolerance is kept as well: if authenticatedUrl throws, fall back to
+      // the bare origin — one exception while fetching a url must not take the
+      // whole desktop-window startup flow down with it.
       const dshWebUrl = () => {
         try {
           const connection = httpCtx.get('connection')
@@ -1234,25 +1311,29 @@ function mount(ctx, config = {}, eventCtx = ctx) {
             ? connection.authenticatedUrl(origin)
             : origin
         } catch (error) {
-          logger.warn?.(`dsh-pet-remielle: dshWebUrl() 失败，回落 origin（${String(error)}）`)
+          logger.warn?.(`dsh-pet-remielle: dshWebUrl() failed, falling back to origin (${String(error)})`)
           return origin
         }
       }
-      // DSH Desktop 宿主给 WebServer 所有路由套了 desktopBrowserAccess 准入
-      // （仅带渲染进程专属头的请求放行，未开「浏览器访问」时其余一律 403
-      // "forbidden"）。独立桌宠 Electron 窗口必须从宿主上下文取 rendererHeader
-      // 交给窗口进程自注入（pet-window.cjs，与 DSH Desktop 自家渲染进程同
-      // 机制）；普通 web 宿主无此服务，get 返回 undefined 即跳过。
+      // The DSH Desktop host wraps every WebServer route in a desktopBrowserAccess
+      // gate (only requests carrying the renderer-specific header pass; with
+      // "browser access" off everything else gets 403 "forbidden"). The
+      // standalone desktop pet Electron window must fetch rendererHeader from
+      // the host context and let the window process inject it itself
+      // (pet-window.cjs, the same mechanism DSH Desktop's own renderer uses);
+      // a plain web host has no such service and get returning undefined simply
+      // skips it.
       let desktopRendererHeader = null
       try {
         const access = httpCtx.get('desktopBrowserAccess')
         if (access?.rendererHeader?.name && access?.rendererHeader?.value) {
           desktopRendererHeader = { name: access.rendererHeader.name, value: access.rendererHeader.value }
         }
-      } catch { /* 无此服务（普通 web 宿主） */ }
+      } catch { /* no such service (plain web host) */ }
       const onDesktopExit = (owner) => {
-        // stop() 先清空旧实例的 child，但旧 Electron 的 exit 事件可能迟到；
-        // 只有仍然挂在宿主 desktop 引用上的实例才能清理当前窗口。
+        // stop() clears the old instance's child first, but the old Electron's exit
+        // event may arrive late; only the instance still held by the host's
+        // desktop reference may tear down the current window.
         if (desktop !== owner) return
         desktop = undefined
         if (desktopActive) { desktopActive = false; hub.broadcast() }
@@ -1271,7 +1352,7 @@ function mount(ctx, config = {}, eventCtx = ctx) {
           try {
             w = new DesktopWindow({ url: desktopUrl, webUrl: dshWebUrl(), logger, onExit: onDesktopExit, posX: settings.get().desktopX, posY: settings.get().desktopY, rendererHeader: desktopRendererHeader })
           } catch (error) {
-            logger.error?.(`dsh-pet-remielle: 创建桌面窗失败：${String(error)}`)
+            logger.error?.(`dsh-pet-remielle: failed to create the desktop window: ${String(error)}`)
             return false
           }
           if (!w.backend) return false
@@ -1279,7 +1360,7 @@ function mount(ctx, config = {}, eventCtx = ctx) {
           try {
             w.start()
           } catch (error) {
-            logger.error?.(`dsh-pet-remielle: 启动桌面窗进程失败：${String(error)}`)
+            logger.error?.(`dsh-pet-remielle: failed to start the desktop window process: ${String(error)}`)
             desktop = undefined
             return false
           }
@@ -1296,7 +1377,8 @@ function mount(ctx, config = {}, eventCtx = ctx) {
         }
         if (confirmSent) return // already waiting for user confirmation
         confirmSent = true
-        // 缺什么文件一并打出：vendor 残缺时「no backend」只有一句会看不出残缺点。
+        // Log every missing file at once: with a partial vendor/ tree, "no backend"
+        // alone would not show which piece is missing.
         const missing = missingRuntimeFiles(electronArtifact().vendorDir, process.platform)
         logger.info?.(`dsh-pet-remielle: no Electron backend — requesting user confirmation to fetch (bundled root missing: ${missing.length ? missing.join(', ') : 'nothing, other candidates empty'})`)
         hub.notify({ protocolVersion: 1, kind: 'download', phase: 'confirm' })
@@ -1438,8 +1520,11 @@ function mount(ctx, config = {}, eventCtx = ctx) {
             store: currentSessionStore,
             accept: (sessionId, { changed }) => {
               dismissErrorIfNeeded(sessionId)
-              // 值变了就广播：桌面窗要靠快照里的 currentSessionId 才知道你在看哪个会话，
-              // 不广播它就得等下一次任意广播或自己的 5 秒轮询（绿点消失比网页端慢半拍）。
+              // Broadcast as soon as the value changes: the desktop window only learns which
+              // session you are looking at from currentSessionId in the snapshot,
+              // so without a broadcast it has to wait for the next arbitrary
+              // broadcast or for its own 5-second poll (the green dot then
+              // disappears half a beat later than in the web client).
               if (changed) hub.broadcast()
             },
           }),
@@ -1453,10 +1538,13 @@ function mount(ctx, config = {}, eventCtx = ctx) {
           handler: createThemeHandler({
             accept: (theme, { changed }) => {
               reportedHostTheme = theme
-              // 清除上报（空串）同样刷新时间戳：清除态本身也是有效状态
+              // A cleared report (empty string) refreshes the timestamp too: the
+              // cleared state is itself a valid state
               reportedHostThemeAt = Date.now()
-              // 值变了就广播：桌面悬浮窗靠快照里的 hostTheme 决定菜单/气泡配色，
-              // 宿主主题一换它得立刻跟上，否则两端会出现一段时间的水土不服。
+              // Broadcast as soon as the value changes: the desktop floating
+              // window decides its menu/bubble palette from hostTheme in the
+              // snapshot, so it must follow immediately when the host theme
+              // switches, otherwise the two clients look mismatched for a while.
               if (changed) hub.broadcast()
             },
           }),
@@ -1479,21 +1567,25 @@ function mount(ctx, config = {}, eventCtx = ctx) {
         () => httpCtx.webServer.register({ kind: 'exact', path: STREAM_ENDPOINT, handler: async (req, res) => {
           if (!localOnly(req, res)) return
           sseHeaders(res)
-          // 订阅者类型入 hub：?client=pet（桌宠窗口）不参与 delivered 计数，
-          // 否则它常驻订阅会让 session-action 永远“已送达”，暂存兜底成死代码。
+          // The subscriber type goes into the hub: ?client=pet (the desktop pet
+          // window) does not count toward delivered, otherwise its permanent
+          // subscription would make every session-action look "delivered" and
+          // turn the stashed-action fallback into dead code.
           const client = streamClientOf(req.url)
           hub.add(res, { client })
-          // 无网页在线时点卡的动作在此重放：新网页订阅者握手即补收最新一条
-          // session-action。桌宠窗口会丢弃带 kind 的帧——跳过重放，防止
-          // 它断线重连时把暂存动作抢收吞掉。
+          // The action from a clicked card with no web client online is replayed
+          // here: a new web subscriber receives the newest session-action during
+          // the handshake. The desktop pet window drops frames carrying a kind —
+          // skip the replay so its reconnect cannot swallow the stashed action.
           if (client !== 'pet') {
             const replay = pendingActions.take()
             if (replay) {
               try {
                 res.write(`data: ${JSON.stringify(replay)}\n\n`)
               } catch {
-                // 客户端已断开：回滚暂存，动作留给下一个网页订阅者，
-                // 避免先 take 后 write 失败导致动作静默丢失。
+                // Client already disconnected: roll the stash back and leave the action for
+                // the next web subscriber, so a take-then-write failure cannot
+                // silently lose the action.
                 pendingActions.stash(replay)
               }
             }
@@ -1592,8 +1684,9 @@ function mount(ctx, config = {}, eventCtx = ctx) {
             if (action === 'start') startDesktop(true)
             else if (action === 'stop') stopDesktop('in-page menu')
             else if (action === 'confirm-download') runDownload()
-            // cancel-download 分支自行响应后必须 return：落到末尾会二次
-            // jsonResponse → ERR_HTTP_HEADERS_SENT（实测宿主日志反复告警）。
+            // The cancel-download branch responds itself and must return: falling through
+            // to the bottom would jsonResponse a second time →
+            // ERR_HTTP_HEADERS_SENT (the host log warned repeatedly in practice).
             else if (action === 'cancel-download') { confirmSent = false; jsonResponse(res, 200, { ok: true }); return }
             else {
               jsonResponse(res, 400, { ok: false, error: 'expected /desktop/start, /desktop/stop, /desktop/confirm-download, or /desktop/cancel-download' })
@@ -1621,21 +1714,23 @@ function mount(ctx, config = {}, eventCtx = ctx) {
         'dsh-pet-remielle: pet sticker assets',
       )
       // ---- self-update routes (version check + one-click update) ----
-      // 一键更新会替换插件目录内的文件：先停掉桌宠窗并等进程退出——
-      // electron.exe 从 vendor/ 目录内运行时会锁住文件，导致 pnpm/git EPERM
+      // One-click update replaces files inside the plugin directory: stop the desktop
+      // pet window first and wait for the process to exit — electron.exe running
+      // from the vendor/ directory locks those files and causes pnpm/git EPERM
       setSelfUpdateHooks({
         stopDesktopWindow: async (reason = 'self-update') => {
           const w = desktop
           await w?.stop(reason)
           if (w && desktopActive) { desktopActive = false; hub.broadcast() }
         },
-        // 更新成功后收尾：包内下载的 Electron 运行时已被 pnpm 替换掉，
-        // 桌面模式继续开着会让重启后“双端皆无宠物”。自动切回网页宠物；
-        // 返回的说明文字会展示在更新卡片里。
+        // Wrap-up after a successful update: the bundled Electron runtime was replaced
+        // by pnpm, so leaving desktop mode on would mean "no pet on either
+        // client" after the restart. Switch back to the web pet automatically;
+        // the returned note is shown in the update card.
         onUpdateSuccess: () => {
           if (settings.get().desktopMode !== false) {
             void settings.update({ desktopMode: false })
-            return '检测到桌面悬浮模式：其 Electron 运行时随更新被移除，已自动切回网页宠物；重启后可重新开启（将重新下载运行时）。'
+            return 'Desktop floating mode was on: its Electron runtime is removed by the update, so the web pet has been restored automatically. You can turn it back on after the restart (the runtime will be downloaded again).'
           }
           return null
         },
@@ -1659,8 +1754,9 @@ function mount(ctx, config = {}, eventCtx = ctx) {
       httpCtx.effect(() => () => {
         unwatchDesktop()
         stopDesktop('dsh-host-stop')
-        // 宿主退出时终止进行中的 pnpm/git：孤儿进程会把 node_modules 改成
-        // 半成品，下一次启动插件加载直接崩溃
+        // Kill an in-flight pnpm/git when the host exits: an orphan process keeps
+        // rewriting node_modules and leaves it half-finished, which crashes the
+        // plugin the next time it loads
         killActiveUpdate()
       })
     })

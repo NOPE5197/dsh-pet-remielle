@@ -15,12 +15,12 @@ import { EventEmitter } from 'node:events'
 import { downloadMirrors, ensureElectronRuntime, electronArtifact, runtimeTarget, electronBinaryIn, requiredRuntimeFiles, missingRuntimeFiles, ELECTRON_VERSION } from '../../src/electron-fetch.mjs'
 
 /**
- * 本文件下方的 ensureElectronRuntime 用例一律按 `platform: 'win32'` 驱动，所以夹具
- * 必须落 win32 的可执行名。此前这里取的是 `electronArtifact().binary`（不带参数 =
- * 运行平台），于是夹具在 Windows runner 上写 electron.exe、在 Ubuntu 上写 electron，
- * 而生产代码是按**传入的** platform 查找的 —— 非 Windows runner 上两者对不上，
- * 直接报「未在解压目录找到 electron.exe」。上游 0.4.4 一直只在 Windows 上跑，
- * 这个缺口此前没暴露过。
+ * Every ensureElectronRuntime case below is driven with `platform: 'win32'`, so the fixture
+ * must use the win32 executable name. This used to take `electronArtifact().binary` (no
+ * argument = the running platform), so the fixture wrote electron.exe on a Windows runner but
+ * electron on Ubuntu, while the production code looks it up by the **passed** platform — on a
+ * non-Windows runner the two did not match and it failed with "electron.exe not found in the
+ * extracted directory". Upstream 0.4.4 only ever ran on Windows, so this gap was never exposed.
  */
 const BIN = electronArtifact({ platform: 'win32' }).binary
 
@@ -92,8 +92,9 @@ function fakeSpawn(platform = 'win32') {
         writeFileSync(join(app, 'Info.plist'), 'fake')
         writeFileSync(join(dest, 'LICENSE'), 'fake')
       } else {
-        // 按本解压器被要求的 platform 落可执行名，而不是全局的 BIN：fakeSpawn 是个
-        // 接受 platform 的通用夹具，将来若有用例走 linux，得落无后缀的 electron。
+        // Write the executable name for the platform this extractor was asked for, not the global
+        // BIN: fakeSpawn is a general fixture that takes a platform, so a future case going
+        // through linux would need the extension-less electron.
         writeFileSync(join(dest, electronArtifact({ platform }).binary), 'FAKE_ELECTRON')
         mkdirSync(join(dest, 'resources'), { recursive: true })
         writeFileSync(join(dest, 'resources', 'default_app.asar'), 'FAKE_ASAR')
@@ -127,7 +128,7 @@ test('missingRuntimeFiles lists exactly the absent required files (residue diagn
     assert.ok(missing.includes('v8_context_snapshot.bin'))
     assert.ok(!missing.includes('electron.exe'))
     assert.ok(!missing.includes('resources.pak'))
-    // 完整根目录 → 空清单
+    // Complete root → empty list
     mkdirSync(join(vendor, 'resources'), { recursive: true })
     writeFileSync(join(vendor, 'resources', 'default_app.asar'), 'ASAR')
     writeFileSync(join(vendor, 'snapshot_blob.bin'), 'SNAP')
@@ -139,13 +140,16 @@ test('missingRuntimeFiles lists exactly the absent required files (residue diagn
 })
 
 /**
- * 镜像与文件名断言一律从 ELECTRON_VERSION 派生，并且**不**显式传版本号——
- * 生产代码走的就是 `downloadMirrors()` 的默认参数路径，测试传字面量 '33.0.0'
- * 既覆盖不到那条路径，升 Electron 时还要同步改一堆魔法字符串。
+ * Mirror and filename assertions are always derived from ELECTRON_VERSION and deliberately do
+ * **not** pass a version literal —
+ * production code goes through the default-parameter path of `downloadMirrors()`, while a test
+ * passing the literal '33.0.0' covers neither that path nor keeps working when Electron is
+ * upgraded without editing a pile of magic strings.
  *
- * 原来这里是三条：镜像顺序、win32/linux 文件名、darwin-arm64。第三条是前两条的
- * 子集，且三者断言的是同一样东西（zip 名由 platform+arch 决定），已合为这一张
- * 表。可执行文件名（electron.exe / electron）是 electronArtifact 的事，另有一条。
+ * This used to be three tests: mirror ordering, win32/linux filenames, darwin-arm64. The third
+ * is a subset of the first two, and all three assert the same thing (the zip name is decided by
+ * platform+arch), so they were merged into this single table. The executable file name
+ * (electron.exe / electron) is electronArtifact's business and has its own test.
  */
 test('downloadMirrors: npmmirror first then github, artifact name per platform/arch', () => {
   const cases = [
@@ -156,18 +160,19 @@ test('downloadMirrors: npmmirror first then github, artifact name per platform/a
   for (const [platform, arch] of cases) {
     const name = `electron-v${ELECTRON_VERSION}-${platform}-${arch}.zip`
     const mirrors = downloadMirrors(undefined, platform, arch)
-    assert.equal(mirrors.length, 2, `${platform}/${arch} 应有两个镜像`)
+    assert.equal(mirrors.length, 2, `${platform}/${arch} should have two mirrors`)
     assert.ok(
       mirrors[0].startsWith(`https://registry.npmmirror.com/-/binary/electron/v${ELECTRON_VERSION}/`),
-      `${platform}/${arch} 首选镜像应是 npmmirror`,
+      `${platform}/${arch} should prefer the npmmirror mirror`,
     )
     assert.ok(
       mirrors[1].startsWith(`https://github.com/electron/electron/releases/download/`),
-      `${platform}/${arch} 备选镜像应是 GitHub releases`,
+      `${platform}/${arch} should fall back to the GitHub releases mirror`,
     )
-    // 两端文件名必须逐字一致，否则第一个镜像挂掉后回退会去拉一个不存在的产物
-    assert.ok(mirrors[0].endsWith(`/${name}`), `${platform}/${arch} npmmirror 文件名应为 ${name}`)
-    assert.ok(mirrors[1].endsWith(`/${name}`), `${platform}/${arch} GitHub 文件名应为 ${name}`)
+    // Both file names must match character for character, otherwise falling back after the
+    // first mirror fails would fetch a nonexistent artifact
+    assert.ok(mirrors[0].endsWith(`/${name}`), `${platform}/${arch} npmmirror file name should be ${name}`)
+    assert.ok(mirrors[1].endsWith(`/${name}`), `${platform}/${arch} GitHub file name should be ${name}`)
   }
 })
 
@@ -196,7 +201,8 @@ test('ensureElectronRuntime is idempotent when the runtime already exists', asyn
   try {
     mkdirSync(vendor, { recursive: true })
     writeFileSync(join(vendor, BIN), 'EXISTS')
-    // issue #24: 快速路径要求完整关键文件集，只有 exe 会被判残缺并触发重装。
+    // issue #24: the fast path requires the complete critical-file set, so an exe-only residue is
+    // judged incomplete and triggers a reinstall.
     for (const rel of requiredRuntimeFiles('win32')) {
       const p = join(vendor, rel)
       mkdirSync(dirname(p), { recursive: true })
@@ -220,7 +226,8 @@ test('ensureElectronRuntime is idempotent when the runtime already exists', asyn
 test('exe-only residue is treated as broken and repaired by reinstalling (issue #24)', async () => {
   const { dir, vendor } = tempVendor()
   try {
-    // 复制中断的典型残留：electron.exe 已就位、resources/default_app.asar 缺失。
+    // The typical residue of an interrupted copy: electron.exe is in place while
+    // resources/default_app.asar is missing.
     mkdirSync(vendor, { recursive: true })
     writeFileSync(join(vendor, BIN), 'EXE_ONLY')
     const exe = await ensureElectronRuntime({
@@ -232,7 +239,7 @@ test('exe-only residue is treated as broken and repaired by reinstalling (issue 
       spawnImpl: fakeSpawn('win32'),
     })
     assert.equal(exe, resolve(vendor, BIN))
-    // 重装后运行时完整。
+    // The runtime is complete after the reinstall.
     assert.ok(existsSync(join(vendor, 'resources', 'default_app.asar')), 'missing default_app.asar should be restored')
   } finally {
     rmSync(dir, { recursive: true, force: true })
@@ -242,7 +249,8 @@ test('exe-only residue is treated as broken and repaired by reinstalling (issue 
 test('incomplete extraction aborts the install without polluting vendorDir (issue #24)', async () => {
   const { dir, vendor } = tempVendor()
   try {
-    // 假解压器只落 exe（模拟解压中断/缺文件）：staging 校验必须拒绝发布。
+    // The fake extractor only writes the exe (simulating an interrupted / incomplete extraction):
+    // the staging check must refuse to publish it.
     await assert.rejects(
       ensureElectronRuntime({
         mirrors: ['https://mirror.test/electron.zip'],
@@ -263,7 +271,7 @@ test('incomplete extraction aborts the install without polluting vendorDir (issu
           return child
         },
       }),
-      /运行时不完整/,
+      /runtime is incomplete/,
     )
     assert.ok(!existsSync(vendor), 'vendorDir must stay clean when staging validation fails')
   } finally {
@@ -286,7 +294,7 @@ test('ensureElectronRuntime downloads, unzips and places the Electron binary', a
     })
     assert.ok(existsSync(exe), `${BIN} should be placed`)
     assert.equal(exe, resolve(vendor, BIN))
-    assert.match(progress.join(' '), /已就绪/)
+    assert.match(progress.join(' '), /Electron is ready/)
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
@@ -323,7 +331,7 @@ test('ensureElectronRuntime rejects when every mirror fails', async () => {
         fetchImpl: fakeFetch(false),
         spawnImpl: () => { throw new Error('must not spawn') },
       }),
-      /所有 Electron 下载源均失败/,
+      /All Electron download sources failed/,
     )
   } finally {
     rmSync(dir, { recursive: true, force: true })
@@ -363,8 +371,9 @@ test('ensureElectronRuntime falls through when a mirror answers 200 but dies mid
       arch: 'x64',
       fetchImpl: async (url) => {
         tried.push(url)
-        // 头部声明 5 字节、实际只吐 3 字节就断——这正是 CDN 抽风时的形状，
-        // 只测「首个字节就 404」会漏掉它，而截断的 zip 喂给解压步骤必然失败。
+        // The headers declare 5 bytes but only 3 are emitted before the connection dies — exactly the
+        // shape of a flaky CDN; testing only "404 on the very first byte" misses it, and a
+        // truncated zip always fails at the extraction step.
         if (url.includes('mirror-1')) {
           return {
             ok: true,
@@ -378,7 +387,7 @@ test('ensureElectronRuntime falls through when a mirror answers 200 but dies mid
       },
       spawnImpl: fakeSpawn('win32'),
     })
-    assert.equal(tried.length, 2, '中途断开的镜像应被跳过并回退到下一个')
+    assert.equal(tried.length, 2, 'a mirror that dies mid-transfer should be skipped in favour of the next one')
     assert.ok(tried[0].includes('mirror-1') && tried[1].includes('mirror-2'))
   } finally {
     rmSync(dir, { recursive: true, force: true })

@@ -3,8 +3,9 @@
  * (src/pet-view.html, served by the host at /plugins/dsh-pet-remielle/session-order.js)
  * and the web client (src/client.core.js, inlined by scripts/build-client.mjs).
  *
- * 文件用 .cjs：包是 "type":"module"，宿主 ESM 经 createRequire 才能拿到导出。
- * 对外 URL 仍是 session-order.js（浏览器 script 不认 .cjs 扩展语义）。
+ * The file uses .cjs: the package is "type":"module", so host ESM can only get
+ * the exports through createRequire. The public URL is still session-order.js
+ * (a browser script does not understand .cjs extension semantics).
  *
  * Priority: approval > plan review > ask (ask_user_question) > completion > attention
  * > current session > state rank > updatedAt.
@@ -49,13 +50,18 @@
     if (attentionOf(entry)) return 2
     return 0
   }
-  // 前 2 名滞回：两个会话完全同级（tier/current/stateRank 都相同）时，
-  // 不因 updatedAt（每个流式 chunk 都会刷新）互换前两名的顺序——
-  // 堆叠卡宽度由最上层决定，否则方框宽度会在两会话间高频抖动。
-  // 记住上一次的前两名 id 序列；本次纯排序若恰好互为倒序则交换回来。
-  // 审批/回答/完成/attention 等层级变化不受影响，照常上位。
+  // Hysteresis for the top 2: when two sessions are completely equal in rank
+  // (tier/current/stateRank all the same), the top two must not swap places just
+  // because of updatedAt (every streaming chunk refreshes it) — the stacked-card
+  // width is decided by the topmost card, so otherwise the box width would jitter
+  // at high frequency between the two sessions.
+  // Remember the previous top-two id sequence; if this pure sort happens to
+  // produce exactly the reverse order, swap it back.
+  // Tier changes such as approval / answer / completion / attention are
+  // unaffected and move up as usual.
   var lastTopIds = []
-  // 纯比较、无滞回：宿主 states()/快照与客户端 orderSessions 共用，避免两套优先级。
+  // Pure comparison, no hysteresis: shared by the host's states()/snapshot and
+  // the client's orderSessions so there is only one set of priorities.
   function compareSessions(a, b, currentSessionId) {
     var aTier = tierOf(a)
     var bTier = tierOf(b)
@@ -92,8 +98,8 @@
       && stateRank(a.state) === stateRank(b.state)
   }
 
-  // 网页/桌面解构 attentionOf 等；compareSessions 给宿主 ESM 经 CJS 复用。
-  // stateRank/askOf/tierOf 仍仅内部使用。
+  // Web/desktop destructure attentionOf and friends; compareSessions is reused by
+  // host ESM through CJS. stateRank/askOf/tierOf remain internal only.
   global.__rm2SessionOrder = {
     attentionOf: attentionOf,
     completionOf: completionOf,
@@ -103,8 +109,9 @@
     orderSessions: orderSessions,
     compareSessions: compareSessions,
   }
-  // 浏览器 script / 构建拼接里存在 window，不得写 module.exports，否则会盖掉
-  // client bundle 的 module.exports。Node require 无 window，可当 CJS 导出。
+  // There is a window in a browser script / build concatenation, so module.exports
+  // must not be written, or it would overwrite the client bundle's
+  // module.exports. A Node require has no window and can be treated as a CJS export.
   if (typeof module === 'object' && module.exports && typeof window === 'undefined') {
     module.exports = global.__rm2SessionOrder
   }

@@ -21,11 +21,14 @@ contextBridge.exposeInMainWorld('petBridge', {
   dragMove: () => ipcRenderer.send('drag-move'),
   dragEnd: () => ipcRenderer.send('drag-end'),
   getPosition: () => ipcRenderer.invoke('get-position'),
-  // 本窗是否已按宿主持久化坐标定位（null = 无，渲染层可走 localStorage 兜底）
+  // Whether this window was already positioned by the host's persisted coordinates
+  // (null = no, so the renderer may use the localStorage fallback)
   getInitialPosition: () => ipcRenderer.invoke('get-initial-position'),
-  // 右键菜单「重置位置」：清宿主持久化坐标并把窗口搬回默认落点，resolve {x,y}
+  // Right-click menu "Reset position": clear the host's persisted coordinates and move the
+  // window back to the default landing spot, resolves {x,y}
   resetPosition: () => ipcRenderer.invoke('reset-position'),
-  // 右键菜单：工作区坐标 + 按包围盒扩窗，invoke 返回 {width,height,dx,dy}
+  // Right-click menu: work-area coordinates + bounding-box window growth, invoke returns
+  // {width,height,dx,dy}
   getWorkArea: () => ipcRenderer.invoke('get-work-area'),
   menuExpand: (left, top, right, bottom) => ipcRenderer.invoke(
     'menu-expand',
@@ -35,9 +38,10 @@ contextBridge.exposeInMainWorld('petBridge', {
     Number(bottom) || 0,
   ),
   menuRestore: () => ipcRenderer.invoke('menu-restore'),
-  // 无网页在线时点击卡片：请主进程用系统浏览器打开 DSH 网页端（URL 由主进程决定）
+  // Clicking a card with no web client online: ask the main process to open the DSH web client
+  // in the system browser (the URL is decided by the main process)
   openDshPage: () => ipcRenderer.invoke('open-dsh-page'),
-  // 绘画作品：独立窗口显示在桌面右上角（不遮气泡）
+  // Drawing artwork: shown in a separate window at the desktop top-right (never covers the bubble)
   artworkOpen: (w, h) => ipcRenderer.send('artwork-open', Number(w) || 240, Number(h) || 240),
   artworkSet: (dataUrl) => ipcRenderer.send('artwork-set', String(dataUrl)),
   artworkClear: () => ipcRenderer.send('artwork-clear'),

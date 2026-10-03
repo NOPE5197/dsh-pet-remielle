@@ -3,16 +3,19 @@
  * bundled runtime, npm global, dsh root, cwd fallback), start/stop lifecycle
  * with a stubbed spawn, and the no-backend fallback.
  *
- * 关于断言风格：桌宠的渲染层是一整份 HTML 字符串 + 内联脚本，没有可在 node
- * 里驱动的 DOM，所以本文件的主手段是「读源码、匹配字面量」（177 处
- * assert.match / doesNotMatch）。这是这个场景的必然选择，不是待清理的债：
- *   · 结构类断言（「两端都调用了共享模块」「两端不得自带副本」「不得写死上移
- *     量」）防的是代码回退，正是 3b6ace9 / 704ea4e 那类改动的护栏，应保留；
- *   · 纯字面量断言（只匹配一个字符串、改个变量名就报红）若其行为已由别处覆盖
- *     （典型是 test/bubble-title.test.js 对共享纯函数的行为断言），则是重复，
- *     已删除。
- * 判断新断言该不该加：先问「它的行为是否已被 client-interactions /
- * bubble-title 等测试覆盖」，覆盖了就只留结构断言。
+ * About the assertion style: the desktop pet's renderer layer is one whole HTML string plus an
+ * inline script, with no DOM that node can drive, so the main tool in this file is "read the
+ * source, match literals" (177 assert.match / doesNotMatch). This is an unavoidable choice for
+ * that scenario, not debt waiting to be cleaned up:
+ *   · Structural assertions ("both clients call the shared module", "neither client carries
+ *     its own copy", "no hardcoded lift amount") guard against code regressions and are exactly
+ *     the guardrails for changes like 3b6ace9 / 704ea4e, so they stay;
+ *   · Purely literal assertions (matching a single string, going red when a variable is
+ *     renamed) whose behaviour is already covered elsewhere (typically the behavioural
+ *     assertions in test/bubble-title.test.js for the shared pure functions) are duplication
+ *     and were deleted.
+ * Deciding whether a new assertion belongs: first ask "is its behaviour already covered by
+ * client-interactions / bubble-title and friends?" — if so, keep only the structural assertion.
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
@@ -25,16 +28,17 @@ import { backendCandidates, DesktopWindow, findRoot, findDshRoot } from '../../s
 import { cardHeightOf } from '../helpers/card-height.mjs'
 
 /**
- * 候选发现的结构契约。
+ * The structural contract of candidate discovery.
  *
- * 原先这里断言「bundled 运行时排第一」，但 bundled / npm-global / dsh-root 三个
- * 候选都要 `isUsableElectronRoot()` 判真，也就是要求那 184MB 的 Electron 运行时
- * 真的躺在磁盘上。干净 clone 与 CI 上它不存在，于是整条用例被 skip —— 看上去
- * 「跑过了」，实则零覆盖。
+ * This used to assert "the bundled runtime comes first", but the bundled / npm-global /
+ * dsh-root candidates all require `isUsableElectronRoot()` to hold, which means the 184MB
+ * Electron runtime really has to be on disk. On a clean clone and in CI it does not exist, so
+ * the whole test got skipped — it looked like "it ran", but the coverage was zero.
  *
- * 拆开看：候选**路径怎么算出来**由 test/platform/electron-fetch.test.js 覆盖
- * （runtimeTarget / electronBinaryIn 按平台取正确文件名）；这里该管的是
- * 「凡是被选中的候选，形状是否合法」——这条不依赖本机装没装 Electron。
+ * Broken down: how the candidate **paths are computed** is covered by
+ * test/platform/electron-fetch.test.js (runtimeTarget / electronBinaryIn return the correct
+ * file name per platform); what belongs here is "is every selected candidate well-formed" —
+ * and that does not depend on whether this machine has Electron installed.
  */
 test('every backend candidate is well-formed and points at the pet-window entry', () => {
   const saved = process.env.DSH_PET_ELECTRON
@@ -42,16 +46,17 @@ test('every backend candidate is well-formed and points at the pet-window entry'
     delete process.env.DSH_PET_ELECTRON
     const list = backendCandidates({ platform: 'win32', cwd: 'C:/fairy' })
     for (const candidate of list) {
-      assert.equal(candidate.kind, 'electron', '目前只支持 Electron 后端')
-      assert.ok(candidate.command, '候选必须给出可执行文件路径')
+      assert.equal(candidate.kind, 'electron', 'only the Electron backend is supported today')
+      assert.ok(candidate.command, 'a candidate must provide the executable path')
       assert.ok(
         candidate.args[0].includes('pet-window.cjs'),
-        `候选入口应指向 pet-window.cjs，实际 ${candidate.args[0]}`,
+        `the candidate entry should point at pet-window.cjs, got ${candidate.args[0]}`,
       )
     }
-    // 本机确实装了 bundled 运行时时，顺带确认它排在最前（没装则此条自然不成立）
+    // When this machine really has the bundled runtime installed, also confirm it comes first
+    // (without it installed the check simply does not hold)
     if (list.some((c) => c.command.includes('electron-win32-x64'))) {
-      assert.ok(list[0].command.includes('electron-win32-x64'), 'bundled 运行时应优先于 npm 全局安装')
+      assert.ok(list[0].command.includes('electron-win32-x64'), 'the bundled runtime should take priority over the npm global install')
     }
   } finally {
     if (saved !== undefined) process.env.DSH_PET_ELECTRON = saved
@@ -119,8 +124,9 @@ test('DesktopWindow start passes renderer access header env when provided', () =
   const window = new DesktopWindow({
     url: 'http://127.0.0.1:50336/plugins/dsh-pet-remielle/pet-view',
     backend: { kind: 'electron', command: 'D:/plugins/vendor/electron-win32-x64/electron.exe', args: ['D:/plugins/src/pet-window.cjs'] },
-    // DSH Desktop 宿主的 desktopBrowserAccess 渲染进程准入头（issue：桌面窗
-    // 在 DSH Desktop 下被 403 "forbidden"）：必须原样经 env 传给窗口进程。
+    // The DSH Desktop host's desktopBrowserAccess renderer admission header (issue: the desktop
+    // window got 403 "forbidden" under DSH Desktop): it must be passed through env to the
+    // window process verbatim.
     rendererHeader: { name: 'x-dsh-desktop-renderer', value: 'a'.repeat(43) },
     spawnImpl: (command, args, options) => {
       spawned = { command, args, options }
@@ -158,8 +164,9 @@ test('DesktopWindow start passes DSH_WEB_URL when provided', () => {
   window.stop()
 })
 
-// 位置持久化（issue #21）：有效坐标经 DSH_PET_POS_X/Y 传给子进程；缺位或
-// 非 finite 时不得设置 env（子进程据此回退默认 fit / localStorage 兜底）。
+// Position persistence (issue #21): valid coordinates travel to the child process via
+// DSH_PET_POS_X/Y; when one is missing or not finite the env vars must not be set (the child
+// process then falls back to the default fit / the localStorage fallback).
 test('DesktopWindow forwards persisted position via env only when both coordinates are valid', () => {
   const makeChild = () => {
     const child = new EventEmitter()
@@ -226,13 +233,15 @@ test('DesktopWindow start is idempotent while running and fires onExit', () => {
   window.stop()
   assert.equal(exited, 0)
   childRef.emit('exit')
-  assert.equal(exited, 1, 'stop() 主动停掉的进程，其退出仍要通知 onExit')
+  assert.equal(exited, 1, 'a process deliberately stopped by stop() must still notify onExit on exit')
 })
 
-// 旧进程的 exit 事件姗姗来迟，而用户已经重启了桌面模式：新进程正在跑，旧进程的
-// 退出回调不得把它抹掉。上一版 this.child 的清理有 === child 保护、onExit 却是
-// 无条件调用，于是宿主把 desktop 置空 → 宿主认为没有桌宠窗，用户再开一次就是
-// 两个置顶窗，外加一个失去引用的僵尸 electron 进程。
+// The old process's exit event arrives late while the user has already restarted desktop
+// mode: the new process is running and the old process's exit callback must not wipe it out.
+// In the previous version the cleanup of this.child had a `=== child` guard while onExit was
+// called unconditionally, so the host nulled `desktop` → the host believed there was no pet
+// window, and opening it once more yields two always-on-top windows plus a zombie electron
+// process with no references.
 test('a superseded window exiting late never clears the newer window', () => {
   const spawned = []
   let exited = 0
@@ -251,14 +260,15 @@ test('a superseded window exiting late never clears the newer window', () => {
   })
   window.start()
   const stale = spawned[0]
-  // 旧进程没退，但调用方已经重新 start 过一次 → this.child 指向新进程
+  // The old process has not exited, but the caller already called start() again → this.child
+  // points at the new process
   stale.exitCode = 0
   window.start()
-  assert.equal(spawned.length, 2, '前一个进程还活着时不该被判定为 running')
+  assert.equal(spawned.length, 2, 'the previous process must not be judged running while it is still alive')
 
   stale.emit('exit')
-  assert.equal(exited, 0, '被取代的旧进程退出时不得触发 onExit——那会清掉正在跑的新进程')
-  assert.equal(window.running, true, '新进程应仍在运行')
+  assert.equal(exited, 0, "a superseded old process exiting must not fire onExit — that would clear the new process that is running")
+  assert.equal(window.running, true, 'the new process should still be running')
 })
 
 test('onExit identifies the owning DesktopWindow instance', () => {
@@ -294,8 +304,9 @@ test('DesktopWindow reports asynchronous spawn failures through onExit once', ()
       const child = new EventEmitter()
       child.exitCode = null
       child.killed = false
-      // 这个用例只走 spawn 失败 → onExit，不调 stop()，所以不挂 child.kill
-      // （running getter 读 exitCode/killed，kill 方法没有调用方）
+      // This case only goes through spawn failure → onExit and never calls stop(), so it does not
+      // attach child.kill (the running getter reads exitCode/killed and nothing calls the
+      // kill method)
       childRef = child
       return child
     },

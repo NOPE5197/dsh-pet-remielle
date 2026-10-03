@@ -58,14 +58,16 @@ export function computeTodayCost(data) {
  * @param {(name: string) => Promise<{value: string}|null>} options.resolveCredential
  * @param {string} [options.dshHome]
  * @param {(m: string) => void} [options.log]
- * @param {typeof fetch} [options.fetchImpl] 网络出口，测试注入用（默认全局 fetch）
- * @param {() => number} [options.now] 时钟，测试注入用（默认 Date.now）
+ * @param {typeof fetch} [options.fetchImpl] network egress, injected by tests (defaults to global fetch)
+ * @param {() => number} [options.now] clock, injected by tests (defaults to Date.now)
  */
 export function createBalanceService({ resolveCredential, getPlatformToken, dshHome, log, fetchImpl = globalThis.fetch, now = () => Date.now() }) {
   const DSH_HOME = dshHome || process.env.DSH_HOME || path.join(os.homedir(), '.dsh')
   const logger = log || (() => {})
-  // 峰谷时段判定（issue #25）：周末/法定节假日全天空闲，其余按 9–12、14–18
-  // 判高峰。节假日日历以内置表兜底、后台静默刷新远程数据。
+  // Peak/off-peak determination (issue #25): weekends and statutory holidays are
+  // off-peak all day; otherwise 9–12 and 14–18 count as peak. The holiday
+  // calendar falls back to a builtin table and silently refreshes remote data
+  // in the background.
   const holidays = createHolidayStore({ dshHome: DSH_HOME, log: logger, fetchImpl, now })
 
   const USAGE_FILE_CANDIDATES = [
@@ -81,10 +83,10 @@ export function createBalanceService({ resolveCredential, getPlatformToken, dshH
     try {
       cred = await resolveCredential('DEEPSEEK_API_KEY')
     } catch (err) {
-      return { ok: false, code: 'NO_KEY', error: '凭据读取失败: ' + String((err && err.message) || err).slice(0, 160) }
+      return { ok: false, code: 'NO_KEY', error: 'failed to read credential: ' + String((err && err.message) || err).slice(0, 160) }
     }
     if (!cred) {
-      return { ok: false, code: 'NO_KEY', error: '未配置 DEEPSEEK_API_KEY' }
+      return { ok: false, code: 'NO_KEY', error: 'DEEPSEEK_API_KEY is not configured' }
     }
     let lastErr = null
     for (let attempt = 0; attempt < 2; attempt++) {
@@ -114,7 +116,7 @@ export function createBalanceService({ resolveCredential, getPlatformToken, dshH
       }
       const info = data && Array.isArray(data.balance_infos) ? data.balance_infos[0] : null
       if (!info || info.total_balance === undefined) {
-        return { ok: false, code: 'SHAPE', error: '余额接口返回结构异常' }
+        return { ok: false, code: 'SHAPE', error: 'the balance endpoint returned an unexpected structure' }
       }
       return {
         ok: true,
@@ -128,12 +130,13 @@ export function createBalanceService({ resolveCredential, getPlatformToken, dshH
       ok: false,
       code: 'HTTP',
       transient: transient,
-      error: '余额接口请求失败: ' + String((lastErr && lastErr.message) || lastErr).slice(0, 200),
+      error: 'balance endpoint request failed: ' + String((lastErr && lastErr.message) || lastErr).slice(0, 200),
     }
   }
 
   async function fetchUsage() {
-    // 优先用配置里的 platformToken（main 设置页填写），回落到 DSH 凭据服务
+    // Prefer the platformToken from the config (filled in on the main settings
+    // page), falling back to the DSH credential service
     let token = ''
     try { token = String((typeof getPlatformToken === 'function' ? getPlatformToken() : '') || '').replace(/^Bearer\s+/i, '') } catch { /* ignore */ }
     if (!token) {
@@ -193,7 +196,7 @@ export function createBalanceService({ resolveCredential, getPlatformToken, dshH
     return false
   }
 
-  /** 记账模式：每次观测到余额后，用余额正差值累计当天用量（跨天自动归零并归档）。 */
+  /** Ledger mode: after every balance observation, accumulate the day's usage from the positive balance delta (reset and archive automatically on a new day). */
   function recordLedgerUsage(currentBalance) {
     const t = todayKey()
     const led = readUsageLedger()
@@ -223,26 +226,28 @@ export function createBalanceService({ resolveCredential, getPlatformToken, dshH
   async function getBalancePayload(usageMode) {
     const payload = await fetchBalance()
     if (!payload.ok) return payload
-    // 无论哪种模式，都先把余额观测记入账本（自动累积记账数据）
+    // Whatever the mode, record the balance observation in the ledger first
+    // (ledger data accumulates automatically)
     const led = recordLedgerUsage(Number(payload.totalBalance))
     const mode = normalizeUsageMode(usageMode)
     const full = { ...payload }
     full.isPeak = holidays.isPeak(Math.floor(now() / 1000))
-    // 日历刷新属后台行为，不阻塞余额展示；失败静默（内置表兜底仍在）。
+    // Calendar refresh is background behaviour and must not block the balance
+    // display; failures stay silent (the builtin table still backstops it).
     void holidays.refresh()
     if (mode === 'ledger') {
       full.todayUsage = led.todayUsage
       full.usageMode = 'ledger'
       return full
     }
-    // token：尝试平台令牌实时计算
+    // token: try to compute in real time with the platform token
     const u = await fetchUsage()
     if (u && u.amount !== undefined) {
       full.todayUsage = u.amount
       full.usageMode = 'token'
       return full
     }
-    // 无令牌或令牌失败：回落记账模式
+    // No token, or the token failed: fall back to ledger mode
     full.todayUsage = led.todayUsage
     full.usageMode = 'ledger'
     return full
@@ -270,7 +275,7 @@ export function createBalanceService({ resolveCredential, getPlatformToken, dshH
       .catch((err) => ({
         ok: false,
         code: 'ERROR',
-        error: '余额服务异常: ' + String((err && err.message) || err).slice(0, 200),
+        error: 'balance service failure: ' + String((err && err.message) || err).slice(0, 200),
       }))
       .finally(() => {
         balanceInFlight = null

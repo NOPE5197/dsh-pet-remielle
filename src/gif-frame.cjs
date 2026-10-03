@@ -1,26 +1,33 @@
 /**
- * 取动态 GIF「此刻正在显示的那一帧」——右键菜单的「暂停动画」用它把宠物冻在
- * 点下去那一刻的造型，而不是永远弹回首帧。
+ * Get "the frame an animated GIF is showing right now" — the right-click menu's
+ * "Pause animation" uses it to freeze the pet in the pose it had at the moment
+ * you clicked, instead of always snapping back to the first frame.
  *
- * 为什么需要这个文件：Chromium 的 canvas.drawImage(<img src=动图>) 永远只画首帧。
- * 本地实测（vendor/electron-win32-x64，360x360 / 120 帧的贴纸 06.gif）：
- * 20 次采样跨 462ms、覆盖 7 个完整循环，像素签名完全一致，且等于 ImageDecoder
- * 的第 0 帧。旧实现暂停后宠物会瞬间跳回起始造型，就是这个原因。
+ * Why this file is needed: Chromium's canvas.drawImage(<img src=animated gif>)
+ * always paints only the first frame. Locally measured (vendor/electron-win32-x64,
+ * a 360x360 / 120-frame 06.gif sticker): 20 samples spanning 462ms and covering
+ * 7 full loops had pixel signatures that were all identical, and equal to frame 0
+ * of ImageDecoder. The old implementation made the pet jump instantly back to its
+ * starting pose after pausing, for exactly this reason.
  *
- * 解法走 WebCodecs 的 ImageDecoder：读每帧时长 → 按「已播放毫秒数」定位帧号 →
- * 按需解码那一帧（disposal / 局部帧由浏览器合成，结果与屏幕上一致）→ 画成静态 PNG。
- * 它要求安全上下文：127.0.0.1、localhost、https 都算，纯 http 的局域网地址不算。
- * 不可用时 freeze() 返回 null，调用方回退成首帧快照（旧行为）——暂停开关本身
- * 不会失效，只是冻结的造型不精确。
+ * The fix goes through WebCodecs' ImageDecoder: read every frame's duration →
+ * locate the frame index by "elapsed milliseconds played" → decode that frame on
+ * demand (disposal / partial frames are composited by the browser, so the result
+ * matches what is on screen) → draw it to a static PNG. It requires a secure
+ * context: 127.0.0.1, localhost and https all count, a plain http LAN address does
+ * not. When unavailable, freeze() returns null and the caller falls back to a
+ * first-frame snapshot (the old behaviour) — the pause switch itself still works,
+ * only the frozen pose is imprecise.
  *
- * 文件用 .cjs：包是 "type":"module"，宿主 ESM 经 createRequire 才能拿到导出。
- * 对外 URL 仍是 gif-frame.js（浏览器 script 不认 .cjs 扩展语义）；
- * 网页端则由 scripts/build-client.mjs 直接拼进 lib/client.js。
+ * The file uses .cjs: the package is "type":"module", so host ESM can only get
+ * the exports through createRequire. The public URL is still gif-frame.js (a
+ * browser script does not understand .cjs extension semantics); the web client
+ * inlines it straight into lib/client.js via scripts/build-client.mjs.
  */
 ;(function (global) {
   'use strict'
 
-  /** 帧时长总和（毫秒）。非法/非正时长按 0 计。 */
+  /** Sum of frame durations (milliseconds). Invalid / non-positive durations count as 0. */
   function totalDuration(durations) {
     var total = 0
     if (!durations) return 0
@@ -32,8 +39,9 @@
   }
 
   /**
-   * 已播放 elapsed 毫秒时，GIF 正在显示第几帧。
-   * elapsed 可以任意大或为负：按整轮时长取模（GIF 循环播放）。取不了帧时返回 0。
+   * Which frame the GIF is showing after `elapsed` milliseconds have played.
+   * elapsed may be arbitrarily large or negative: it is taken modulo the full
+   * loop duration (GIFs loop). Returns 0 when no frame can be determined.
    */
   function indexAt(durations, elapsed) {
     var n = durations ? durations.length : 0
@@ -54,7 +62,7 @@
     return n - 1
   }
 
-  /** 只对 GIF 走解码取帧；PNG 贴纸（画画）原样交给调用方的首帧快照兜底。 */
+  /** Only GIFs take the decode-to-get-a-frame path; PNG stickers (drawing) are handed to the caller's first-frame snapshot fallback as-is. */
   function isGif(url) {
     return /\.gif(?:[?#]|$)/i.test(String(url || ''))
   }
@@ -64,7 +72,7 @@
     return Date.now()
   }
 
-  /** ImageDecoder 需要安全上下文；缺任何一项就整条链路让位给首帧兜底。 */
+  /** ImageDecoder needs a secure context; if anything is missing the whole chain yields to the first-frame fallback. */
   function supported() {
     return typeof global.ImageDecoder === 'function'
       && typeof global.fetch === 'function'
@@ -72,9 +80,11 @@
   }
 
   /**
-   * 给 <img> 挂动画起表：GIF 的播放进度从「首帧解码完成并绘制」开始算，
-   * load 事件正好落在那个时刻之后（这些贴纸每帧 30ms，误差 ≤ 1 帧），
-   * 所以直接用 load 时刻当 0 点。每次换 src 都会重新起表。
+   * Attach an animation start clock to an <img>: GIF playback progress starts
+   * counting at "the first frame finished decoding and was painted", and the load
+   * event lands just after that moment (these stickers run at 30ms per frame, so
+   * the error is ≤ 1 frame), so the load moment is used directly as 0. Every src
+   * change restarts the clock.
    */
   function watch(img) {
     if (!img || img.__rm2GifWatch || typeof img.addEventListener !== 'function') return
@@ -85,7 +95,7 @@
     })
   }
 
-  /** 该 <img> 当前这张图已经播放了多久（毫秒）。没起过表返回 0 → 等价首帧。 */
+  /** How long the image currently on that <img> has been playing (milliseconds). Never started returns 0, which equals the first frame. */
   function livedMs(img) {
     var t0 = img && img.__rm2GifStart
     if (!t0) return 0
@@ -93,7 +103,7 @@
   }
 
   var entries = new Map() // url -> { bytes, promise }
-  var MAX_ENTRIES = 3 // 贴纸单张 0.5–2.5MB，只留最近用过的几张
+  var MAX_ENTRIES = 3 // a sticker is 0.5–2.5MB on its own, keep only the few most recently used
 
   function trim() {
     while (entries.size > MAX_ENTRIES) {
@@ -110,7 +120,7 @@
     })
   }
 
-  /** 逐个解码读时长：只需要数字，读一帧关一帧，不驻留 VideoFrame。 */
+  /** Decode one by one to read the durations: only the numbers are needed, so one frame is decoded and closed at a time without keeping a VideoFrame resident. */
   function readDurations(buf) {
     var dec = new global.ImageDecoder({ data: buf, type: 'image/gif' })
     return dec.completed
@@ -137,16 +147,18 @@
   function stepDuration(chain, dec, out, index) {
     return chain.then(function () {
       return dec.decode({ frameIndex: index }).then(function (res) {
-        out.push(res.image.duration / 1000) // 微秒 -> 毫秒
+        out.push(res.image.duration / 1000) // microseconds -> milliseconds
         res.image.close()
       })
     })
   }
 
   /**
-   * 帧表（含字节缓存）：菜单 hover 时就可以先 warm()，把解帧表的几百毫秒藏到
-   * 用户移动到菜单项的那点时间里，点下去基本立刻能冻结。
-   * 失败也会被缓存为 null，避免每次暂停都重跑一遍解码。
+   * The frame table (with a byte cache): warm() can be called while the menu is
+   * hovered, hiding the few hundred milliseconds of frame-table decoding inside
+   * the time it takes the user to move onto the menu item, so clicking freezes
+   * almost instantly.
+   * Failures are also cached as null, so every pause does not rerun the decoding.
    */
   function timeline(url) {
     if (!supported() || !isGif(url)) return Promise.resolve(null)
@@ -166,7 +178,7 @@
     return timeline(url).catch(function () { return null })
   }
 
-  /** 解出指定帧并转成 PNG data URL（尺寸取 GIF 逻辑屏幕，避免局部帧被裁小）。 */
+  /** Decode the given frame and turn it into a PNG data URL (the size comes from the GIF logical screen so partial frames are not shrunk). */
   function frameDataUrl(url, index, size) {
     var entry = entries.get(url)
     var bytes = entry && entry.bytes
@@ -197,8 +209,10 @@
   }
 
   /**
-   * 冻结入口：url 是动态 GIF 地址，elapsedMs 是「点下暂停那一刻」它已播放的时长。
-   * 返回 PNG data URL；任何一环不可用（非安全上下文、非 GIF、取帧失败）都返回 null。
+   * Freeze entry point: url is the animated GIF address and elapsedMs is how long
+   * it had already played at the moment pause was clicked.
+   * Returns a PNG data URL; returns null if anything in the chain is unavailable
+   * (insecure context, not a GIF, frame fetch failure).
    */
   function freeze(url, elapsedMs) {
     if (!supported() || !isGif(url)) return Promise.resolve(null)
@@ -221,8 +235,9 @@
   }
 
   global.__rm2GifFrame = api
-  // 浏览器 script / 构建拼接里存在 window，不得写 module.exports，否则会盖掉
-  // client bundle 的 module.exports。Node require 无 window，可当 CJS 导出。
+  // There is a window in a browser script / build concatenation, so module.exports
+  // must not be written, or it would overwrite the client bundle's
+  // module.exports. A Node require has no window and can be treated as a CJS export.
   if (typeof module === 'object' && module.exports && typeof window === 'undefined') {
     module.exports = api
   }

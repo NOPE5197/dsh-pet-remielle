@@ -1,9 +1,12 @@
 /**
- * 共享气泡卡呈现层（网页端与桌面端同一份实现，见 src/bubble-title.cjs）。
+ * Shared bubble-card presentation layer (one implementation for both the web and
+ * desktop clients, see src/bubble-title.cjs).
  *
- * 这层文案以前在 client.core.js 与 pet-view.html 各写一份，审查时发现的
- * 「计划待审」提示重复项目名就是两份实现漂移的结果。这里直接对纯函数断言，
- * 不用整套 DOM stub 也能钉住文案与类名。
+ * This copy used to be written twice, once in client.core.js and once in
+ * pet-view.html, and the "plan review" tip repeating the project name that a
+ * review caught was the result of those two copies drifting apart. Asserting the
+ * pure functions directly here pins the copy and the class names without needing
+ * a whole DOM stub.
  */
 import assert from 'node:assert/strict'
 import { createRequire } from 'node:module'
@@ -13,32 +16,34 @@ const require = createRequire(import.meta.url)
 const card = require('../src/bubble-title.cjs')
 
 test('plan summary is taken after the marker, never the project prefix', () => {
-  assert.equal(card.planSummaryOf('· dsh-pet-remielle · 计划待审 · 推理面板改材质'), '推理面板改材质')
-  assert.equal(card.planSummaryOf('· 计划待审 · 推理面板改材质'), '推理面板改材质')
-  assert.equal(card.planSummaryOf('· dsh-pet-remielle · 执行阶段'), '')
+  assert.equal(card.planSummaryOf('· dsh-pet-remielle · Plan review · Swapping the reasoning panel material'), 'Swapping the reasoning panel material')
+  assert.equal(card.planSummaryOf('· Plan review · Swapping the reasoning panel material'), 'Swapping the reasoning panel material')
+  assert.equal(card.planSummaryOf('· dsh-pet-remielle · Executing'), '')
   assert.equal(card.planSummaryOf(''), '')
 })
 
 test('card tip copy picks one branch per state', () => {
-  assert.equal(card.tipTextOf({ planReview: true, planSummary: '推理面板改材质' }), '计划待审：推理面板改材质，点击打开同意执行/要求修改')
-  assert.equal(card.tipTextOf({ planReview: true }), '计划待审，点击打开同意执行/要求修改')
+  assert.equal(card.tipTextOf({ planReview: true, planSummary: 'Swapping the reasoning panel material' }), 'Plan review: Swapping the reasoning panel material — click to open Approve / Request changes')
+  assert.equal(card.tipTextOf({ planReview: true }), 'Plan review — click to open Approve / Request changes')
   assert.equal(card.tipTextOf({ approval: true, detailShown: '· workspace · rm -rf /' }), '· workspace · rm -rf /')
-  assert.equal(card.tipTextOf({ completed: true }), '完成啦~ 点击查看结果哦')
-  assert.equal(card.tipTextOf({ attention: true }), '轮到你啦，点击跳到这里处理呢')
-  assert.equal(card.tipTextOf({}), '点击跳到这里看一下~')
-  // 待机占位卡不落到「点击跳转」兜底文案里
+  assert.equal(card.tipTextOf({ completed: true }), 'All done~ Click to see the result')
+  assert.equal(card.tipTextOf({ attention: true }), 'Your turn — click here to handle it')
+  assert.equal(card.tipTextOf({}), 'Click to jump here and take a look~')
+  // The idle placeholder card must not fall into the "Click to jump here and take
+  // a look~" fallback copy.
   assert.equal(card.tipTextOf({ idlePlaceholder: true, attention: true }), '')
 })
 
 test('card class list and row width stay inside the deck limits', () => {
   assert.equal(card.classNameOf({ completed: true }, 0), 'rm2-pet-bubble top completed')
   assert.equal(card.classNameOf({ planReview: true, summaryCount: 2 }, 1), 'rm2-pet-bubble summary-backboard')
-  assert.equal(card.bubbleRowWidth(10), 277, '窄文案回落到最小宽度')
-  assert.equal(card.bubbleRowWidth(3000), 440, '超宽文案收敛到上限')
+  assert.equal(card.bubbleRowWidth(10), 277, 'narrow copy falls back to the minimum width')
+  assert.equal(card.bubbleRowWidth(3000), 440, 'over-wide copy is clamped to the ceiling')
 })
 
-// 测量节点在 body 还不存在时被创建过之后，body 出现时必须补挂载。
-// 否则元素被缓存住、offsetWidth 恒为 0，所有卡片宽度静默塌到 BUBBLE_MIN_W。
+// Once the measure node has been created while body does not exist yet, it has to be
+// re-mounted as soon as body shows up. Otherwise the element stays cached and
+// offsetWidth is always 0, so every card width silently collapses to BUBBLE_MIN_W.
 test('the measure node attaches once the body exists, and only once', () => {
   const appended = []
   const body = {
@@ -56,15 +61,15 @@ test('the measure node attaches once the body exists, and only once', () => {
   }
   try {
     current = null
-    assert.equal(card.ensureMeasureEl().parentNode, null, 'body 缺失时不挂载，也不抛错')
+    assert.equal(card.ensureMeasureEl().parentNode, null, 'no mount and no throw while body is missing')
 
     current = body
     const el = card.ensureMeasureEl()
-    assert.equal(el.parentNode, body, 'body 出现后必须补挂载，否则 offsetWidth 恒为 0')
+    assert.equal(el.parentNode, body, 'must re-mount once body exists, otherwise offsetWidth stays 0')
 
     card.ensureMeasureEl()
     card.ensureMeasureEl()
-    assert.equal(appended.length, 1, `重复挂载会累积游离节点（实际 ${appended.length} 次）`)
+    assert.equal(appended.length, 1, `repeated mounting accumulates stray nodes (happened ${appended.length} times)`)
   } finally {
     globalThis.document = withBody
   }

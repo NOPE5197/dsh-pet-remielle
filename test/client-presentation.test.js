@@ -3,10 +3,11 @@ import { readFileSync } from 'node:fs'
 import { test } from 'node:test'
 import { cardHeightOf } from './helpers/card-height.mjs'
 import { CLIENT_CORE, base, createHarness } from './helpers/client-harness.mjs'
-// 缩放与镜像最终写到 DOM 上的效果。
-// 缩放口径的算术（同步/固定两模式）由 test/pet-tip.test.js 直接测 bubbleZoomOf
-// 纯函数覆盖；此处只验 mountPet 确实把结果落到元素 style 上。镜像那段是本用例独有：
-// 镜像只允许作用于贴纸，气泡容器不能跟着翻。
+// What zoom and mirroring end up doing on the DOM.
+// The arithmetic of the zoom rule (sync / fixed modes) is covered directly against the pure
+// function bubbleZoomOf by test/pet-tip.test.js; this case only verifies that mountPet really
+// writes the result onto the element style. The mirroring part is unique to this case:
+// mirroring is only allowed to affect the sticker, the bubble container must not flip with it.
 test('pet visuals: pet size, mirror and bubble zoom reach the DOM', () => {
   const sized = createHarness()
   sized.send({ ...base, scale: 0.75 })
@@ -14,7 +15,7 @@ test('pet visuals: pet size, mirror and bubble zoom reach the DOM', () => {
   assert.equal(bubble.style.zoom, '0.75')
   assert.equal(sized.elements.find((node) => node.className === 'rm2-pet-bubbles').style.zoom, '0.75')
 
-  // 镜像只作用于贴纸，不能把气泡容器一起翻过来
+  // Mirroring only affects the sticker; it must not flip the bubble container as well
   const mirrored = createHarness()
   mirrored.send({ ...base, mirror: true })
   assert.equal(mirrored.elements.find((node) => node.tag === 'img').style.transform, 'scaleX(-1)')
@@ -26,49 +27,55 @@ test('pet visuals: pet size, mirror and bubble zoom reach the DOM', () => {
 test('multi-session deck renders an inert backboard with a dynamic click target', () => {
   const harness = createHarness('first')
   const sessions = [
-    { sessionId: 'first', state: 'WORKING', phase: 'tool-call', message: '正在继续处理任务呢', detail: '.dsh · 调用工具', updatedAt: 3 },
-    { sessionId: 'second', state: 'THINKING', phase: 'think', message: '让我想想最优解是什么', detail: '.dsh · 分析阶段', updatedAt: 2 },
-    { sessionId: 'third', state: 'THINKING', phase: 'think', message: '正在检查剩余问题', detail: '.dsh · 检查阶段', updatedAt: 1 },
+    { sessionId: 'first', state: 'WORKING', phase: 'tool-call', message: 'Still working on the task', detail: '.dsh · Using tools', updatedAt: 3 },
+    { sessionId: 'second', state: 'THINKING', phase: 'think', message: 'Let me think about the best solution', detail: '.dsh · Analyzing', updatedAt: 2 },
+    { sessionId: 'third', state: 'THINKING', phase: 'think', message: 'Checking the remaining problems', detail: '.dsh · Checking', updatedAt: 1 },
   ]
   const hasCard = (t) => harness.elements.some((node) => node.className === 'rm2-pet-bubble-title' && node.textContent === t)
   harness.send({ ...base, sessions })
-  // 首层刷新不影响背板：+N 保持，第二层一律不渲染第 2 名的文字/图标。
-  harness.send({ ...base, sessions: [{ ...sessions[0], message: '正在读取文件' }, sessions[1], sessions[2]] })
+  // A refresh of the top layer must not affect the backboard: +N stays, and the second layer
+  // never renders the 2nd-ranked session's text/icon.
+  harness.send({ ...base, sessions: [{ ...sessions[0], message: 'Reading the file' }, sessions[1], sessions[2]] })
 
   const backboard = harness.elements.find((node) => String(node.className).includes('backboard'))
   assert.ok(backboard, 'backboard card should exist')
   const writes = harness.styleWrites.filter(({ element, key }) => element === backboard && key === 'marginTop')
   assert.ok(writes.length >= 1)
   const lift = Math.abs(Number.parseInt(writes.at(-1).value, 10))
-  // 卡高真值在 CSS 里（stub 的 offsetHeight 只是近似值），所以从源文件解析：
-  // 卡高变了而上移量没跟着变，背板就会露太多或被完全盖住——这是布局不变量，
-  // 不是纯派生的样式断言。解析函数已抽到 test/helpers/card-height.mjs，两端共用。
+  // The real card height lives in the CSS (the stub's offsetHeight is only an approximation),
+  // so it is parsed from the source file: if the card height changes without the lift amount
+  // following, the backboard shows too much or is covered completely — that is a layout
+  // invariant, not a purely derived styling assertion. The parser has been extracted to
+  // test/helpers/card-height.mjs and is shared by both clients.
   const cardHeight = cardHeightOf(readFileSync(CLIENT_CORE, 'utf8'))
-  assert.equal(lift, 80, '第二层应按共享常量 STACK_LIFT_PX 上移（常量唯一性由 desktop-window 测）')
+  assert.equal(lift, 80, 'the second layer should be lifted by the shared STACK_LIFT_PX constant (uniqueness is checked by the desktop-window test)')
   assert.equal(cardHeight, 91)
   assert.ok(
     Math.abs((cardHeight - lift) * 0.75 - 8) <= 0.5,
-    `75% 档位露出应约 8px，实际 ${(cardHeight - lift) * 0.75}px`,
+    `the 75% step should expose about 8px, actually ${(cardHeight - lift) * 0.75}px`,
   )
   assert.equal(backboard.children.find((node) => node.className === 'rm2-pet-bubble-stack-count').textContent, '+2')
-  assert.equal(hasCard('让我想想最优解是什么'), false)
-  assert.equal(hasCard('正在检查剩余问题'), false)
-  assert.equal(backboard.dataset.rm2Tip, '点击跳到这里看一下~')
+  assert.equal(hasCard('Let me think about the best solution'), false)
+  assert.equal(hasCard('Checking the remaining problems'), false)
+  assert.equal(backboard.dataset.rm2Tip, 'Click to jump here and take a look~')
   harness.send({
     ...base,
     sessions: [
       sessions[0],
-      { ...sessions[1], project: 'dsh-pet-remielle', title: '审查提示框颜色与溢出问题' },
+      { ...sessions[1], project: 'dsh-pet-remielle', title: 'Reviewing tooltip colors and overflow' },
       sessions[2],
     ],
   })
   harness.flushTitleTimers()
-  assert.equal(backboard.dataset.rm2Tip, '点击去看 dsh-pet-remielle · 审查提示框颜色与溢出问题 哦~')
-  // 点击背板：按当帧排序动态解析第 2 名（second）并跳转。
+  assert.equal(backboard.dataset.rm2Tip, 'Click to look at dsh-pet-remielle · Reviewing tooltip colors and overflow~')
+  // Clicking the backboard: the 2nd rank (second) is resolved dynamically from this frame's
+  // ordering and jumped to.
   harness.click(backboard)
   assert.deepEqual(harness.opened, ['second'])
-  // 同级轮转（third 刷出更大 updatedAt）后，同一张背板的跳转目标跟着排序走。
-  // 先把当前会话复位回 first：上一次跳转已让 second 成为当前会话并占据首层。
+  // After a same-tier rotation (third streams out a larger updatedAt), the same backboard's
+  // jump target follows the ordering.
+  // First reset the current session back to first: the previous jump made second the current
+  // session and it took the top layer.
   harness.select('first')
   harness.send({ ...base, sessions: [sessions[0], sessions[1], { ...sessions[2], updatedAt: 5 }] })
   harness.flushTitleTimers()
@@ -79,52 +86,54 @@ test('multi-session deck renders an inert backboard with a dynamic click target'
 test('modern workspace navigation promotes the clicked lower bubble', () => {
   const harness = createHarness('first', true, {}, true)
   const sessions = [
-    { sessionId: 'first', state: 'WORKING', phase: 'tool-call', message: '首个对话', detail: '.dsh · 处理中', updatedAt: 3 },
-    { sessionId: 'second', state: 'WORKING', phase: 'tool-call', message: '第二个对话', detail: '.dsh · 处理中', updatedAt: 2 },
+    { sessionId: 'first', state: 'WORKING', phase: 'tool-call', message: 'First conversation', detail: '.dsh · In progress', updatedAt: 3 },
+    { sessionId: 'second', state: 'WORKING', phase: 'tool-call', message: 'Second conversation', detail: '.dsh · In progress', updatedAt: 2 },
   ]
   harness.send({ ...base, sessions })
   const backboard = harness.elements.find((node) => String(node.className).includes('backboard'))
   assert.ok(backboard)
   harness.click(backboard)
   assert.deepEqual(harness.opened, ['second'])
-  assert.match(harness.card('第二个对话').className, /\btop\b/)
+  assert.match(harness.card('Second conversation').className, /\btop\b/)
 })
 
-// 背板提示：点击目标与文案必须成对更新，且优先用宿主会话列表补全标题。
+// Backboard tip: the click target and the copy must update as a pair, and the title is
+// preferably completed from the host's session list.
 test('backboard tip stays paired with its click target', () => {
   const harness = createHarness('first')
-  const mk = (id, updatedAt, title) => ({ sessionId: id, state: 'WORKING', phase: 'tool-call', message: `${id} 的消息`, title, updatedAt })
-  harness.send({ ...base, sessions: [mk('first', 30, '首个对话'), mk('second', 20, '第二个对话')] })
+  const mk = (id, updatedAt, title) => ({ sessionId: id, state: 'WORKING', phase: 'tool-call', message: `${id} message`, title, updatedAt })
+  harness.send({ ...base, sessions: [mk('first', 30, 'First conversation'), mk('second', 20, 'Second conversation')] })
   const backboard = harness.elements.find((node) => String(node.className).includes('backboard'))
   assert.ok(backboard)
-  assert.equal(backboard.dataset.rm2Tip, '点击去看 第二个对话 哦~')
+  assert.equal(backboard.dataset.rm2Tip, 'Click to look at Second conversation~')
 
-  harness.send({ ...base, sessions: [mk('first', 10, '首个对话'), mk('third', 40, '第三个对话')] })
-  // 新排序先进入防抖，背板提示与点击目标仍保持上一对。
-  assert.equal(backboard.dataset.rm2Tip, '点击去看 第二个对话 哦~')
+  harness.send({ ...base, sessions: [mk('first', 10, 'First conversation'), mk('third', 40, 'Third conversation')] })
+  // The new ordering enters the debounce first, so the backboard tip and the click target
+  // still hold the previous pair.
+  assert.equal(backboard.dataset.rm2Tip, 'Click to look at Second conversation~')
   harness.click(backboard)
   assert.deepEqual(harness.opened, ['second'])
 
   harness.flushTitleTimers()
-  assert.equal(backboard.dataset.rm2Tip, '点击去看 第三个对话 哦~')
+  assert.equal(backboard.dataset.rm2Tip, 'Click to look at Third conversation~')
   harness.click(backboard)
   assert.deepEqual(harness.opened, ['second', 'third'])
 })
 
 test('backboard tip fills conversation title from sessions.list when snapshot omits it', () => {
   const harness = createHarness('first', true, {
-    second: { id: 'second', title: '审查提示框颜色与溢出问题', cwd: 'C:\\work\\dsh-pet-remielle' },
+    second: { id: 'second', title: 'Reviewing tooltip colors and overflow', cwd: 'C:\\work\\dsh-pet-remielle' },
   })
   harness.send({
     ...base,
     sessions: [
-      { sessionId: 'first', state: 'WORKING', phase: 'tool-call', message: '正在继续处理任务呢', detail: '.dsh · 调用工具', updatedAt: 3, project: 'other' },
-      { sessionId: 'second', state: 'THINKING', phase: 'think', message: '让我想想最优解是什么', detail: '.dsh · 分析阶段', updatedAt: 2, project: 'dsh-pet-remielle' },
+      { sessionId: 'first', state: 'WORKING', phase: 'tool-call', message: 'Still working on the task', detail: '.dsh · Using tools', updatedAt: 3, project: 'other' },
+      { sessionId: 'second', state: 'THINKING', phase: 'think', message: 'Let me think about the best solution', detail: '.dsh · Analyzing', updatedAt: 2, project: 'dsh-pet-remielle' },
     ],
   })
   const backboard = harness.elements.find((node) => String(node.className).includes('backboard'))
   assert.ok(backboard, 'backboard card should exist')
-  assert.equal(backboard.dataset.rm2Tip, '点击去看 dsh-pet-remielle · 审查提示框颜色与溢出问题 哦~')
+  assert.equal(backboard.dataset.rm2Tip, 'Click to look at dsh-pet-remielle · Reviewing tooltip colors and overflow~')
 })
 
 test('title clipping ignores long detail text for short approval titles', () => {
@@ -135,13 +144,13 @@ test('title clipping ignores long detail text for short approval titles', () => 
       sessionId: 'approval',
       state: 'WAITING',
       phase: 'approval',
-      message: '等你看一眼呢',
-      detail: '.dsh · 这是足够长并会决定公共卡片宽度的详情文字，用来验证短标题不会被误判为需要省略',
+      message: 'Have a look please~',
+      detail: '.dsh · detail text that is long enough and does decide the shared card width, used to verify that a short title is not misjudged as needing an ellipsis',
       approval: true,
       attention: true,
     }],
   })
-  assert.equal(harness.card('等你看一眼呢').className.includes('title-clipped'), false)
+  assert.equal(harness.card('Have a look please~').className.includes('title-clipped'), false)
 
   harness.send({
     ...base,
@@ -149,13 +158,13 @@ test('title clipping ignores long detail text for short approval titles', () => 
       sessionId: 'approval',
       state: 'WAITING',
       phase: 'approval',
-      message: '这是一个确实长到超过卡片内部可用宽度并且必须截断显示的审批标题文本',
-      detail: '.dsh · 审批阶段',
+      message: 'an approval title that really is long enough to exceed the card inner width and must be truncated',
+      detail: '.dsh · Approval stage',
       approval: true,
       attention: true,
     }],
   })
-  assert.equal(harness.card('这是一个确实长到超过卡片内部可用宽度并且必须截断显示的审批标题文本').className.includes('title-clipped'), true)
+  assert.equal(harness.card('an approval title that really is long enough to exceed the card inner width and must be truncated').className.includes('title-clipped'), true)
 })
 
 test('approval bubble tooltip shows the second-line request detail', () => {
@@ -166,22 +175,25 @@ test('approval bubble tooltip shows the second-line request detail', () => {
       sessionId: 'approval',
       state: 'WAITING',
       phase: 'approval',
-      message: '需要你确认一下哦',
-      detail: '  • 读取工作区文件并执行安装',
+      message: 'Need you to confirm something~',
+      detail: '  • Read workspace files and run the install',
       approval: true,
       attention: true,
     }],
   })
-  // 悬停提示改自绘浮层：文本在 dataset.rm2Tip（与第二行同一套行首项目符号
-  // 规范化），原生 title 置空避免双重提示
-  const approvalCard = harness.card('需要你确认一下哦')
-  assert.equal(approvalCard.dataset.rm2Tip, '· 读取工作区文件并执行安装')
+  // The hover tip is the hand-drawn overlay: the text lives in dataset.rm2Tip (normalized
+  // with the same leading bullet as the second line), and the native title is emptied to
+  // avoid a double tooltip
+  const approvalCard = harness.card('Need you to confirm something~')
+  assert.equal(approvalCard.dataset.rm2Tip, '· Read workspace files and run the install')
   assert.equal(approvalCard.title, '')
 })
 
 test('web pet tip follows dark theme and stays inside the viewport', () => {
-  // 接线护栏：网页端用的是共享的 pet-tip 模块，深色样式挂在宿主主题属性下。
-  // 布局算法本身由 test/pet-tip.test.js 的 layoutPetTip 覆盖，这里只看两端接上了。
+  // Wiring guard: the web client uses the shared pet-tip module, with the dark styles hung
+  // off the host's theme attribute.
+  // The layout algorithm itself is covered by layoutPetTip in test/pet-tip.test.js; here we
+  // only check that both ends are wired up.
   const core = readFileSync(CLIENT_CORE, 'utf8')
   assert.match(core, /body\[data-ds-dark-theme\] \.rm2-pet-tip/)
   assert.match(core, /__tip\.layoutPetTip\(petTip, anchor/)
@@ -192,23 +204,26 @@ test('web pet tip follows dark theme and stays inside the viewport', () => {
       sessionId: 's1',
       state: 'WORKING',
       phase: 'output',
-      message: '正在输出回答哦',
-      detail: 'dsh-pet-remielle · 输出阶段',
+      message: 'Writing the answer out',
+      detail: 'dsh-pet-remielle · Responding',
     }],
   })
-  const card = harness.card('正在输出回答哦')
+  const card = harness.card('Writing the answer out')
   card.getBoundingClientRect = () => ({ left: 1100, top: 8, width: 180, height: 68, right: 1280, bottom: 76 })
   const enter = card.listeners.get('mouseenter')?.[0]
   assert.ok(enter, 'missing mouseenter listener')
   enter()
   const tip = harness.elements.find((node) => node.className === 'rm2-pet-tip')
   assert.ok(tip, 'missing .rm2-pet-tip')
-  assert.equal(tip.textContent, '点击跳到这里看一下~')
-  // 视口钳位本身由 test/pet-tip.test.js 直接对 layoutPetTip 断言（显式注入
-  // offsetWidth/offsetHeight，覆盖 24px 光晕、maxWidth 420 与四种换行场景）。
-  // 这里用 stub 的 offsetWidth(=字数×12) / offsetHeight(=68) 再算一遍，得到的是
-  // stub 自己的数字而非真实布局——同样量级的检查已在那边做过且更强，故不重复。
-  // 此处只留一条与 DOM 接线直接相关的：提示浮层拿到的是自绘节点且短口吻不拆字。
+  assert.equal(tip.textContent, 'Click to jump here and take a look~')
+  // The viewport clamp itself is asserted directly against layoutPetTip in
+  // test/pet-tip.test.js (offsetWidth/offsetHeight injected explicitly, covering the 24px
+  // halo, the 420px maxWidth and four wrapping scenarios).
+  // Here the stub's offsetWidth (=text length ×12) / offsetHeight (=68) are used to recompute
+  // it, which yields the stub's own numbers rather than the real layout — a check of the same
+  // magnitude was already done there and is stronger, so it is not repeated.
+  // Only the one thing directly related to the DOM wiring is kept here: the tip overlay is
+  // the hand-drawn node and short copy is not broken into words.
   assert.equal(tip.style.whiteSpace, 'nowrap')
 })
 
@@ -232,16 +247,16 @@ test('question and error action symbols open their own conversations', () => {
   harness.send({
     ...base,
     sessions: [
-      { sessionId: 'question', state: 'WAITING', phase: 'ask', message: '等待回答', detail: '问题', attention: true, updatedAt: 2 },
-      { sessionId: 'error', state: 'ERROR', phase: 'tool-error', message: '需要处理', detail: '错误', attention: true, updatedAt: 1 },
+      { sessionId: 'question', state: 'WAITING', phase: 'ask', message: 'Waiting for answer', detail: 'Question', attention: true, updatedAt: 2 },
+      { sessionId: 'error', state: 'ERROR', phase: 'tool-error', message: 'Needs attention', detail: 'Error', attention: true, updatedAt: 1 },
     ],
   })
-  const questionAction = harness.card('等待回答').children[0].children.find((node) => node.className === 'rm2-pet-bubble-action')
+  const questionAction = harness.card('Waiting for answer').children[0].children.find((node) => node.className === 'rm2-pet-bubble-action')
   harness.click(questionAction)
   assert.deepEqual(harness.opened, ['question'])
-  // ERROR 卡（stateRank 低于 WAITING）排第二，落入假背板：无真卡无图标，
-  // 点击背板动态跳到它。
-  assert.equal(harness.elements.some((node) => node.className === 'rm2-pet-bubble-title' && node.textContent === '需要处理'), false)
+  // The ERROR card (a lower stateRank than WAITING) sorts second and falls into the fake
+  // backboard: no real card, no icon, and clicking the backboard jumps to it dynamically.
+  assert.equal(harness.elements.some((node) => node.className === 'rm2-pet-bubble-title' && node.textContent === 'Needs attention'), false)
   const backboard = harness.elements.find((node) => String(node.className).includes('backboard'))
   harness.click(backboard)
   assert.deepEqual(harness.opened, ['question', 'error'])

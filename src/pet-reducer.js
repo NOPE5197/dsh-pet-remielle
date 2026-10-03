@@ -5,7 +5,7 @@
  *  - every rendered message carries a `mood` (remielle sticker id), derived
  *    from state + phase (THINKING -> '04', tools -> '02', ...);
  *  - assistant output streaming is tracked as a THINKING phase 'streaming'
- *    so the "绘制中" sticker shows while text is being written;
+ *    so the "Drawing" sticker shows while text is being written;
  *  - SUCCESS / ERROR are transient PULSE overlays with a TTL (the browser
  *    client shows them until the deadline, then falls back to durable state).
  */
@@ -63,31 +63,37 @@ function cleanProjectName(value) {
   return candidate.replace(/\s+/gu, ' ').slice(0, 40) || undefined
 }
 
-/** 标题规范化：DSH 写入 `session/title` 时已按 `maxTitleBytes` 规范化，这里只做
- *  trim 与空值判定，不再额外截断（与 DSH 的 `foldSessionTitle` 口径一致）。 */
+/** Title normalization: DSH already normalizes titles by `maxTitleBytes` when it
+ *  writes `session/title`, so this only trims and checks for emptiness, with no
+ *  extra truncation (same stance as DSH's `foldSessionTitle`). */
 function normalizeTitle(value) {
   return String(value ?? '').trim()
 }
 
 /**
- * 从会话日志折出最新标题（取最后一个非空的 `session/title`，与 DSH 的
- * foldSessionTitle 同源）。宿主 Session 的公开快照 API 是 `snapshotEvents()`；
- * `session.events` 并不存在（内部 log 不对外），只认实时事件会漏掉插件加载前
- * 已写入的标题——DSH 重启后恢复运行的老会话就是这样，标题事件不会重放。
+ * Folds the newest title out of the session log (takes the last non-empty
+ * `session/title`, same source as DSH's foldSessionTitle). The host Session's
+ * public snapshot API is `snapshotEvents()`; `session.events` does not exist
+ * (the internal log is not exposed), and relying only on live events would miss
+ * titles written before the plugin loaded—exactly what happens to old sessions
+ * that are resumed after a DSH restart, because title events are never replayed.
  *
- * 权衡（已知的弃用风险）：DSH 在 2026-09-09 的架构说明里把同步读事件
- * （`snapshotEvents` / `eventAt` / `ownEvents`）标为 `@deprecated`，注明
- * 「已有逻辑可暂不迁移，但禁止新增调用」。本函数是 2026-09-15 引入的新调用，
- * 严格说踩了这条约定。当时可用的替代面只有同样被弃用的同步读，或自行从
- * 事件流重放重建标题（后者要自建每会话缓存，成本与收益不匹配）。
- * 后续 DSH 给出正式替代（`session.surface` 之类）时，这里应一并迁过去。
+ * Trade-off (a known deprecation risk): DSH's 2026-09-09 architecture note marks
+ * the synchronous event reads (`snapshotEvents` / `eventAt` / `ownEvents`) as
+ * `@deprecated`, stating "existing logic may stay for now, but new calls are
+ * forbidden". This function is a new call introduced on 2026-09-15, so strictly
+ * speaking it breaks that agreement. The only alternatives available at the time
+ * were equally deprecated synchronous reads, or rebuilding the title by replaying
+ * the event stream ourselves (which means maintaining a per-session cache, a cost
+ * that does not pay for itself). Once DSH ships a real replacement (something
+ * like `session.surface`), this should move over along with it.
  */
 export function titleFromSessionLog(session) {
   let events
   try {
     events = typeof session?.snapshotEvents === 'function' ? session.snapshotEvents() : undefined
   } catch {
-    return undefined // 折取失败不阻断事件处理与快照构建
+    return undefined // a failed fold must not block event handling or snapshot building
   }
   if (!Array.isArray(events)) return undefined
   for (let i = events.length - 1; i >= 0; i--) {
@@ -107,10 +113,11 @@ function conversationTitleOf(session, event) {
 }
 
 /**
- * 气泡第二行的项目名：宿主把 cwd 只挂在 `SessionHeader` 上——`Session` 类本身没有
- * `cwd`/`title`/`name`/`context`，header 也只有 version/id/createdAt/cwd/... 且是
- * 冻结的创建元数据；会话事件 payload 里没有 cwd（`EpochHeader` / `RequestContext`
- * 都不含），所以这是唯一来源。
+ * Project name for the bubble's second line: the host only hangs `cwd` off
+ * `SessionHeader`—the `Session` class itself has no `cwd`/`title`/`name`/`context`,
+ * and the header only carries version/id/createdAt/cwd/... as frozen creation
+ * metadata; there is no cwd in the session event payloads either (`EpochHeader` /
+ * `RequestContext` have none), so this is the only source.
  */
 function projectNameOf(session) {
   return cleanProjectName(session?.header?.cwd)
@@ -152,17 +159,17 @@ function approvalContent(toolName, reason, argsRaw) {
   if (args && typeof args.justification === 'string' && args.justification.trim()) return clipLine(args.justification)
   if (args && typeof args.command === 'string' && args.command.trim()) return clipLine(args.command)
   if (args && typeof args.description === 'string' && args.description.trim()) return clipLine(args.description)
-  return clipLine(toolName) || '等待确认'
+  return clipLine(toolName) || 'Waiting for approval'
 }
 
 function planReviewContent(argsRaw) {
   const args = parseToolArgs(argsRaw)
   const markdown = String(args?.plan ?? '').replace(/\r\n?/g, '\n').trim()
-  if (!markdown) return '计划待审'
+  if (!markdown) return 'Plan review'
   const heading = markdown.match(/^#\s+(.+)$/mu)
-  if (heading) return clipLine(heading[1]) || '计划待审'
+  if (heading) return clipLine(heading[1]) || 'Plan review'
   const paragraph = markdown.split(/\n\s*\n/u).map((part) => part.trim()).find(Boolean)
-  return clipLine(paragraph || markdown) || '计划待审'
+  return clipLine(paragraph || markdown) || 'Plan review'
 }
 
 function detailFor(record, stage = record.payload.stage) {
@@ -170,34 +177,34 @@ function detailFor(record, stage = record.payload.stage) {
   if (approval) {
     const parts = []
     if (record.project) parts.push(record.project)
-    parts.push(approval.payload.preview || approval.payload.toolName || '等待确认')
+    parts.push(approval.payload.preview || approval.payload.toolName || 'Waiting for approval')
     return parts.join(' · ')
   }
   const planReview = record.waits?.find((wait) => wait.kind === 'plan-review')
   if (planReview) {
     const parts = []
     if (record.project) parts.push(record.project)
-    parts.push('计划待审')
-    if (planReview.payload.preview && planReview.payload.preview !== '计划待审') parts.push(planReview.payload.preview)
+    parts.push('Plan review')
+    if (planReview.payload.preview && planReview.payload.preview !== 'Plan review') parts.push(planReview.payload.preview)
     return parts.join(' · ')
   }
   const parts = []
   if (record.project) parts.push(record.project)
-  if (record.progress?.total) parts.push(`已完成 ${record.progress.completed}/${record.progress.total} 步`)
+  if (record.progress?.total) parts.push(`${record.progress.completed}/${record.progress.total} steps done`)
   if (record.task) parts.push(record.task)
   else if (stage) parts.push(stage)
-  return parts.join(' · ') || stage || 'DSH 任务'
+  return parts.join(' · ') || stage || 'DSH task'
 }
 
 /** Remielle sticker for the current durable state + phase. */
 export function moodFor(state, phase) {
-  // 流式输出（正在写回复）→ 绘制中；其它思考 → 思考中
+  // Streaming output (writing the reply) → Drawing; any other thinking → Thinking
   if (state === PetState.THINKING && phase === 'streaming') return '01'
   if (state === PetState.THINKING) return '04'
   if (state === PetState.WAITING) return '05'
   if (state === PetState.IDLE) return '06'
   if (state === PetState.DISCONNECTED) return '06'
-  // WORKING (tool busy) and ERROR both show as "摸鱼中".
+  // WORKING (tool busy) and ERROR both show as "Slacking".
   return '02'
 }
 
@@ -232,13 +239,17 @@ export class PetReducer {
     record.subagent = subagent
     record.lastSeq = Number(event.seq ?? record.lastSeq)
     record.project = projectNameOf(session) ?? record.project
-    // 标题只可能由 session/title 事件产生：事件本身直接取，日志折取每个会话最多做
-    // 一次（titleFolded 置位）——否则"始终没有标题"的会话会每个事件都全量扫一遍日志
-    // （snapshotEvents 每次 append 后缓存失效，代价是 O(n²)）。改名会派发新的
-    // session/title 事件，仍走第一支更新。
-    // 折取抛错（snapshotEvents 的罕见异常）时也照样置位：这里是每个事件都走的热路径，
-    // 不为了重试反复扫日志——宿主侧 readSessionTitle 是每帧重试，两条口径刻意不同；
-    // 真拿到 session/title 事件时仍会更新。
+    // A title can only come from a session/title event: take it straight off the
+    // event when there is one, and fold each session's log at most once (titleFolded
+    // is set afterwards)—otherwise sessions that "never get a title" would rescan
+    // the whole log on every event (snapshotEvents drops its cache on every append,
+    // so the cost is O(n²)). A rename dispatches a new session/title event, which
+    // still goes through the first branch.
+    // We still set titleFolded when folding throws (snapshotEvents' rare
+    // exceptions): this is a hot path hit by every event, and we refuse to rescan
+    // the log over and over just to retry—the host-side readSessionTitle retries
+    // every frame, so the two stances are deliberately different; a real
+    // session/title event will still update the title.
     if (event.type === 'session/title' || !record.titleFolded) {
       record.title = conversationTitleOf(session, event) ?? record.title
       record.titleFolded = true
@@ -257,7 +268,7 @@ export class PetReducer {
         record.progress = undefined
         this.#update(record, PetState.THINKING, {
           phase: 'turn-start',
-          stage: '准备阶段',
+          stage: 'Preparing',
           message: statusCopy('preparing', event.seq),
         })
         return this.#render()
@@ -266,7 +277,7 @@ export class PetReducer {
         if (!record.turnActive || record.openTools.size > 0) return []
         this.#update(record, PetState.THINKING, {
           phase: 'step-start',
-          stage: '分析阶段',
+          stage: 'Analyzing',
           message: statusCopy('thinking', event.seq),
         })
         return this.#render()
@@ -275,24 +286,25 @@ export class PetReducer {
         if (!record.turnActive || record.openTools.size > 0) return []
         const chunkType = String(event.data?.chunk?.type ?? 'text-delta')
         if (chunkType === 'reasoning-delta') {
-          // 思考块（推理中）→ 思考中 04
+          // Reasoning chunk (in the think phase) → Thinking 04
           this.#update(record, PetState.THINKING, {
             phase: 'think',
-            stage: '推理阶段',
+            stage: 'Reasoning',
             message: statusCopy('thinking', event.seq),
           })
         } else if (chunkType === 'tool-call-delta') {
-          // 工具调用流式帧 → 摸鱼中 02（随后的 tool/call 事件继续/确认）
+          // Streaming tool-call frame → Slacking 02 (the following tool/call event
+          // continues/confirms it)
           this.#update(record, PetState.WORKING, {
             phase: 'tool-call',
-            stage: '调用工具',
+            stage: 'Using tools',
             message: statusCopy('working', event.seq),
           })
         } else {
-          // text-delta（默认）：真正输出 → 绘制中 01
+          // text-delta (default): real output → Drawing 01
           this.#update(record, PetState.THINKING, {
             phase: 'streaming',
-            stage: '输出阶段',
+            stage: 'Responding',
             message: statusCopy('streaming', event.seq),
           })
         }
@@ -303,7 +315,7 @@ export class PetReducer {
         if (!record.turnActive || record.openTools.size > 0) return []
         this.#update(record, PetState.THINKING, {
           phase: 'streaming',
-          stage: '输出阶段',
+          stage: 'Responding',
           message: statusCopy('streaming', event.seq),
         })
         return this.#render()
@@ -312,8 +324,9 @@ export class PetReducer {
         const callId = String(event.data?.callId ?? `seq-${String(event.seq ?? 'unknown')}`)
         const name = String(event.data?.name ?? 'tool')
         record.openTools.set(callId, { name, args: event.data?.arguments })
-        // 计划审核通过 user-questions waterfall 呈现，不会发 approval/asked；
-        // 但 exit_plan_mode 的 tool/call 是它进入等待期的稳定宿主信号。
+        // Plan review is presented through the user-questions waterfall, so it never
+        // emits approval/asked; but the tool/call for exit_plan_mode is the stable
+        // host signal that it has entered a waiting period.
         if (name === PLAN_REVIEW_TOOL) {
           record.planTools.add(callId)
           this.#enterWait(record, {
@@ -321,15 +334,15 @@ export class PetReducer {
             id: callId,
             payload: {
               phase: 'plan-review',
-              stage: '计划待审',
+              stage: 'Plan review',
               toolName: name,
               preview: planReviewContent(event.data?.arguments),
-              message: '计划待审',
+              message: 'Plan review',
             },
           })
           return this.#render()
         }
-        // Asking the human a question is a "waiting" state, not "摸鱼中".
+        // Asking the human a question is a "waiting" state, not "Slacking".
         if (name === ASK_USER_TOOL) {
           record.askTools.add(callId)
           this.#enterWait(record, {
@@ -337,7 +350,7 @@ export class PetReducer {
             id: callId,
             payload: {
               phase: 'ask',
-              stage: '等待回答',
+              stage: 'Waiting for answer',
               toolName: name,
               message: statusCopy('waiting', event.seq),
             },
@@ -378,7 +391,7 @@ export class PetReducer {
           id: approvalId,
           payload: {
             phase: 'approval',
-            stage: '等待确认',
+            stage: 'Waiting for approval',
             toolName,
             preview: approvalContent(toolName, event.data?.reason, argsRaw),
             message: statusCopy('waiting', event.seq),
@@ -408,15 +421,16 @@ export class PetReducer {
   }
 
   /**
-   * 打开该会话即已读：只收口耐久 ERROR（turn/end 失败），回 IDLE，牌叠不再渲染。
-   * WAITING（审批/提问）和工具报错脉冲不走这里。
+   * Opening the session counts as having read it: only durable ERROR is closed
+   * out (a failed turn/end), back to IDLE, and the card deck stops rendering it.
+   * WAITING (approval/question) and tool-error pulses do not go through here.
    */
   dismissError(sessionId) {
     const record = this.sessions.get(String(sessionId ?? ''))
     if (!record || record.state !== PetState.ERROR) return []
     this.#update(record, PetState.IDLE, {
       phase: 'turn-end',
-      stage: '已停止',
+      stage: 'Stopped',
       message: statusCopy('stopped'),
     })
     return this.#render()
@@ -447,9 +461,11 @@ export class PetReducer {
         // Only an unresolved approval wait may render the actionable ✓.
         // Generic WAITING (ask_user_question) and ERROR must not inherit it.
         approval: record.waits.some((wait) => wait.kind === 'approval'),
-        // 计划审核是独立的用户决策门，不复用普通审批或普通提问字段。
+        // Plan review is an independent user decision gate; it reuses neither the
+        // plain-approval nor the plain-question fields.
         planReview: record.waits.some((wait) => wait.kind === 'plan-review'),
-        // 等待用户回答（ask_user_question）单独暴露，供气泡排序置于审批之下、完成之上。
+        // Waiting for the user to answer (ask_user_question) is exposed on its own,
+        // so bubble sorting can place it below approvals and above completions.
         ask: record.waits.some((wait) => wait.kind === 'ask'),
         attention: record.state === PetState.WAITING || record.state === PetState.ERROR,
         updatedAt: record.updatedAt,
@@ -486,7 +502,7 @@ export class PetReducer {
         : undefined,
       stage: next === PetState.WORKING
         ? activityStage(toolActivity(record.openTools.values().next().value?.name))
-        : '整理阶段',
+        : 'Wrapping up',
       message: next === PetState.WORKING
         ? activityCopy(toolActivity(record.openTools.values().next().value?.name), event.seq)
         : statusCopy('result', event.seq),
@@ -494,8 +510,9 @@ export class PetReducer {
     this.#update(record, next, nextPayload)
     if (!event.data?.error) return this.#render()
 
-    // 与成功路径对称：后台工具报错也发脉冲提示，不再被全局的
-    // WAITING/ERROR 锚点整体吞掉（锚点状态由脉冲的 resume* 字段恢复）
+    // Symmetric with the success path: a background tool error also emits a pulse,
+    // so it is no longer swallowed wholesale by the global WAITING/ERROR anchor
+    // (the anchor state is restored from the pulse's resume* fields)
     const selection = this.#select()
     const pulse = createMessage(PetMessageKind.PULSE, {
       sessionId: record.id,
@@ -541,7 +558,7 @@ export class PetReducer {
       progress: record.progress,
       project: record.project,
       message: taskCopy(record.task),
-      detail: detailFor(record, '执行阶段'),
+      detail: detailFor(record, 'Executing'),
     })]
   }
 
@@ -558,7 +575,7 @@ export class PetReducer {
     if (kind === 'blocked') {
       this.#update(record, PetState.WAITING, {
         phase: 'turn-end',
-        stage: '等待确认',
+        stage: 'Waiting for approval',
         message: statusCopy('waiting', event.seq),
       })
       return this.#render()
@@ -567,19 +584,21 @@ export class PetReducer {
     if (kind === 'aborted') {
       this.#update(record, PetState.IDLE, {
         phase: 'turn-end',
-        stage: '已停止',
+        stage: 'Stopped',
         message: statusCopy('stopped', event.seq),
       })
       return this.#render()
     }
 
     if (kind === 'disposed') {
-      // 会话被销毁/回收（dsh-agent-loop 以 cancel({kind:'disposed'}) 终止轮次）：
-      // 静默回待机，不产出误导性“需要处理”错误卡；紧随其后的 session/disposed
-      // 会移除记录，这里只负责事件窗口内的过渡状态。
+      // The session was destroyed/recycled (dsh-agent-loop ends the turn with
+      // cancel({kind:'disposed'})): silently go back to idle instead of producing a
+      // misleading "needs attention" error card; the session/disposed event right
+      // after removes the record, so this only owns the transitional state inside
+      // the event window.
       this.#update(record, PetState.IDLE, {
         phase: 'turn-end',
-        stage: '已停止',
+        stage: 'Stopped',
         message: statusCopy('stopped', event.seq),
       })
       return this.#render()
@@ -588,7 +607,7 @@ export class PetReducer {
     if (kind !== 'completed') {
       this.#update(record, PetState.ERROR, {
         phase: 'turn-end',
-        stage: '需要处理',
+        stage: 'Needs attention',
         reasonKind: kind,
         message: kind === 'max-tokens'
           ? statusCopy('limit', event.seq)
@@ -599,7 +618,7 @@ export class PetReducer {
 
     this.#update(record, PetState.IDLE, {
       phase: 'turn-end',
-      stage: '已完成',
+      stage: 'Done',
       message: statusCopy('idle', event.seq),
     })
     const selection = this.#select()
@@ -615,7 +634,7 @@ export class PetReducer {
       resumeDetail: detailFor(selection.record),
       phase: 'turn-end',
       message: statusCopy('success', event.seq),
-      detail: detailFor(record, '本轮已完成'),
+      detail: detailFor(record, 'Turn complete'),
       project: record.project,
       title: record.title,
     })
@@ -632,7 +651,7 @@ export class PetReducer {
     record = {
       id: sessionId,
       state: PetState.IDLE,
-      payload: { phase: 'session-created', message: '蕾米埃尔待机中~' },
+      payload: { phase: 'session-created', message: 'Remielle is idling~' },
       turnActive: false,
       openTools: new Map(),
       askTools: new Set(),
@@ -685,7 +704,7 @@ export class PetReducer {
       return
     }
     record.state = record.savedState ?? PetState.THINKING
-    record.payload = record.savedPayload ?? { phase: 'wait-end', message: '蕾米埃尔待机中~' }
+    record.payload = record.savedPayload ?? { phase: 'wait-end', message: 'Remielle is idling~' }
     record.savedState = undefined
     record.savedPayload = undefined
   }
@@ -693,7 +712,7 @@ export class PetReducer {
   #waitPayload(record) {
     return record.waits.find((wait) => wait.kind === 'approval')?.payload
       ?? record.waits.at(-1)?.payload
-      ?? { phase: 'wait-end', message: '蕾米埃尔待机中~' }
+      ?? { phase: 'wait-end', message: 'Remielle is idling~' }
   }
 
   #select() {
@@ -703,7 +722,7 @@ export class PetReducer {
         record: {
           id: 'dsh-host',
           state: PetState.IDLE,
-          payload: { phase: 'no-session', message: '蕾米埃尔待机中~' },
+          payload: { phase: 'no-session', message: 'Remielle is idling~' },
           updatedAt: ++this.clock,
         },
       }

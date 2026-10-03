@@ -1,267 +1,269 @@
-# dsh-pet-remielle · 蕾米埃尔桌宠
+# dsh-pet-remielle · Remielle Desktop Pet
 
 [![npm version](https://img.shields.io/npm/v/dsh-pet-remielle)](https://www.npmjs.com/package/dsh-pet-remielle)
 [![awesome dsh plugin](https://awesome-dsh-plugin.com/badge.svg)](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 
-由 **DSH 真实会话事件**驱动的多宠物网页桌宠：桌宠实时跟随 DeepSeek Harness 的任务进展，以贴纸动画 + 状态气泡呈现。
+A multi-pet web desktop pet **driven by real DSH session events** — the pet follows DeepSeek Harness task progress in real time and presents it with sticker animations + status bubbles.
 
-- 多宠物注册表 + 状态气泡（项目 / 阶段 / 待办 / 进度实时汇报）
-- SSE 实时推送 + 可选的桌面悬浮窗（随包 Electron，透明置顶）
-- 双击画画联动：粗笔刷揭示作品图（绘制中 → 得意中 → 淡出）
-- 一键版本检查 + 增量更新
-- 设置面板：宠物管理（多标签页）、插件配置卡片
+- Multi-pet registry + status bubbles (project / phase / tasks / progress reported in real time)
+- SSE live push + an optional desktop floating window (bundled Electron, transparent and always-on-top)
+- Double-click drawing integration: a thick brush reveals the artwork (Drawing → Pleased → fade-out)
+- One-click version check + incremental update
+- Settings panel: Pet Management (tabbed) + a plugin configuration card
 
-> 兼容 DeepSeek Harness（含其分支）的 web profile；桌面悬浮模式默认关闭，可按需开启。桌面模式要求 DSH `>= 0.1.2-alpha.1`，以提供带 token 的认证根 URL。
+> Compatible with DeepSeek Harness (including its forks) web profile; desktop floating mode is off by default and can be enabled on demand. Desktop mode requires DSH `>= 0.1.2-alpha.1` to provide an authenticated root URL carrying a token.
 
 ---
 
-## 特性一览
+## Features
 
-| 能力 | 说明 |
+| Capability | Details |
 |---|---|
-| 状态来源 | DSH `session/event` 真实事件，非 DOM 抓取 |
-| 状态机 | `PetReducer` 纯函数（含 mood 映射，可单测） |
-| 消息协议 | 类型化协议（protocol.js） |
-| 配置 | schemastery 持久化 + 设置页卡片 |
-| 多 Session 优先级 | 审批 > 计划审核 > 等待回答 > 完成提醒 > 等待/错误 > 当前会话 > 状态优先级 > 更新时间。同级仅稳定前两名，第三名及以后仍随更新时间轮转 |
-| 实时推送 | SSE 流（断线自动重连 + 轮询兜底） |
-| 状态气泡 | 页面内与桌面悬浮均使用自适应两层牌叠：顶层状态卡 + 带 `+N` 的汇总背板；message + detail（项目 · 已完成 x/y · 阶段） |
-| 会话操作 | 网页与桌面一致：点卡片 / `?` / `!` 打开对应会话，`✓` 允许一次；无网页客户端在线时点卡片/图标用系统浏览器打开 DSH 页面 |
-| 完成提醒 | 后台完成后保留绿点直至处理；仅前台可见的标签页中的当前会话会自动消除（即便此刻正开着桌面悬浮窗），后台标签页不抢清除；桌面悬浮窗只展示提醒，点开该会话（网页内跳转、浏览器打开，或点击桌面完成卡）同样消除。当前已打开会话不显示未读绿点（仅当前 Host 生命周期） |
-| 出错提醒 | 后台回合失败（模型调用失败等）保留粉圈直至打开该对话；当前会话失败不进提醒。点气泡跳转或侧边栏点进该对话后提醒消失。审批/提问不受影响 |
-| 余额 | 状态与用量都开启时，点气泡左侧圆点或在气泡上滚轮切换余额页（60s 自动刷新、数字滚动动画、网络抖动沿用最近余额）；停在当前页，不自动回落 |
-| 今日已用 | 双模式任选：小鲸鱼记账（免令牌，余额差值累计）/ 实时·令牌（平台费用接口直接返回真实金额，精确） |
-| 桌面悬浮 | 随包 Electron 透明置顶窗口（可选，默认关） |
-| 多宠物 | 设置 → 宠物管理（注册表 + 切换当前宠物） |
-| 版本更新 | 内置检查 + 一键增量更新 |
+| State source | Real DSH `session/event` events, no DOM scraping |
+| State machine | Pure-function `PetReducer` (with mood mapping, unit-tested) |
+| Message protocol | Typed protocol (protocol.js) |
+| Configuration | schemastery persistence + a settings card |
+| Multi-session priority | Approval > plan review > waiting for an answer > completion reminder > waiting/error > current session > state priority > recency. Hysteresis only stabilizes the top two; the third and later still rotate by recency |
+| Live push | SSE stream (auto-reconnect + polling fallback) |
+| Status bubble | Both the in-page pet and the desktop floating window use an adaptive two-layer card deck: a top status card + a `+N` summary backboard; message + detail (project · completed x/y · phase) |
+| Session actions | Identical on web and desktop: clicking the card / `?` / `!` opens the matching session, `✓` allows once; with no web client online, clicking a card/icon opens the DSH page in the system browser |
+| Completion reminders | A background completion keeps its green dot until handled; the current session in a foreground-only tab is cleared automatically (even while the desktop floating window is up), background tabs never clear it ahead of you; the desktop floating window only shows the reminder — opening that session (in-page jump, browser open, or clicking the desktop completion card) clears it just the same. The already-open session shows no unread green dot (current Host lifetime only) |
+| Error reminders | A failed background turn (model call failure, etc.) keeps its pink mark until that conversation is opened; a failure in the current session never becomes a reminder. Clicking the bubble to jump, or opening the conversation from the sidebar, dismisses it. Approvals and questions are unaffected |
+| Balance | With both status and usage on, clicking the left dot of the bubble or scrolling the wheel switches to the balance page (60s auto-refresh, rolling-number animation, network blips fall back to the last known balance); it stays on the current page and never falls back automatically |
+| Today's usage | Either of two modes: ledger (token-free, accumulates balance deltas) / real-time token (the platform cost API returns the real amount directly, exact) |
+| Desktop float | Bundled Electron transparent always-on-top window (opt-in, off by default) |
+| Multi-pet | Settings → Pet Management (registry + switch the current pet) |
+| Version update | Built-in check + one-click incremental update |
 
 ---
 
-## 贴纸（mood）→ 状态映射
+## Sticker (mood) → State Mapping
 
-| 贴纸 | 展示 | 触发场景 |
+| Sticker | Preview | Trigger |
 |---|---|---|
-| 01 绘制中 | <img src="assets/pets/remielle/01.gif" width="56" alt="01 绘制中"/> | THINKING + streaming：流式输出（正在写回复）、双击画画 |
-| 02 摸鱼中 | <img src="assets/pets/remielle/02.gif" width="56" alt="02 摸鱼中"/> | WORKING / ERROR：调用工具（查找/编辑/测试/命令） |
-| 03 得意中 | <img src="assets/pets/remielle/03.gif" width="56" alt="03 得意中"/> | PULSE SUCCESS：回合完成、绘制完成、点击互动 |
-| 04 思考中 | <img src="assets/pets/remielle/04.gif" width="56" alt="04 思考中"/> | THINKING：回合/步骤开始、推理、结果整理 |
-| 05 等待中 | <img src="assets/pets/remielle/05.gif" width="56" alt="05 等待中"/> | WAITING：提问回答、审批等待、计划待审、回合挂起（blocked） |
-| 06 待机中 | <img src="assets/pets/remielle/06.gif" width="56" alt="06 待机中"/> | IDLE / DISCONNECTED：空闲、回合结束之后 |
+| 01 Drawing | <img src="assets/pets/remielle/01.gif" width="56" alt="01 Drawing"/> | THINKING + streaming: streaming output (writing a reply), double-click drawing |
+| 02 Slacking | <img src="assets/pets/remielle/02.gif" width="56" alt="02 Slacking"/> | WORKING / ERROR: tool calls (search/edit/test/command) |
+| 03 Pleased | <img src="assets/pets/remielle/03.gif" width="56" alt="03 Pleased"/> | PULSE SUCCESS: turn completed, drawing finished, click interaction |
+| 04 Thinking | <img src="assets/pets/remielle/04.gif" width="56" alt="04 Thinking"/> | THINKING: turn/step start, reasoning, result compilation |
+| 05 Waiting | <img src="assets/pets/remielle/05.gif" width="56" alt="05 Waiting"/> | WAITING: answering a question, waiting for approval, plan review, turn blocked |
+| 06 Idle | <img src="assets/pets/remielle/06.gif" width="56" alt="06 Idle"/> | IDLE / DISCONNECTED: idle, after a turn ends |
 
-多 Session 同时运行时按 `审批 > 计划审核 > 等待回答 > 完成提醒 > 等待/错误 > 当前会话 > 状态优先级 > 更新时间` 选择顶层任务；其余会话由可点击的 `+N` 汇总背板表示。子 Agent 默认忽略（可在设置开启）。
+When multiple sessions run concurrently, the top task is selected by `approval > plan review > waiting for an answer > completion reminder > waiting/error > current session > state priority > recency`; every other session is represented by a clickable `+N` summary backboard. Sub-agents are ignored by default (can be enabled in settings).
 
-### 宠物定义约定
+### Pet Definition Convention
 
 ```
-assets/pets/<id>/01.gif  绘制中（输出/画画）
-assets/pets/<id>/02.gif  摸鱼中（工具/错误）
-assets/pets/<id>/03.gif  得意中（完成/互动）
-assets/pets/<id>/04.gif  思考中
-assets/pets/<id>/05.gif  等待中
-assets/pets/<id>/06.gif  待机中
+assets/pets/<id>/01.gif  Drawing (output/drawing)
+assets/pets/<id>/02.gif  Slacking (tools/errors)
+assets/pets/<id>/03.gif  Pleased (completion/interaction)
+assets/pets/<id>/04.gif  Thinking
+assets/pets/<id>/05.gif  Waiting
+assets/pets/<id>/06.gif  Idle
 ```
 
-可选扩展（不影响完整性校验）：
+Optional extensions (do not affect completeness validation):
 ```
-assets/pets/<id>/07.gif           额外贴纸槽位
-assets/pets/<id>/pet-manifest.json  每贴纸对齐偏移 + 作品图数量
-assets/pets/<id>/pics/<n>.png      作品图（双击宠物随机弹出，n 从 1 起）
+assets/pets/<id>/07.gif           Extra sticker slot
+assets/pets/<id>/pet-manifest.json  Per-sticker alignment offsets + artwork count
+assets/pets/<id>/pics/<n>.png      Artwork images (pop up at random on double-click, n starts at 1)
 ```
 
-`id` 只能含字母、数字、下划线、连字符。内置宠物：**蕾米埃尔**（remielle，素材版权见 `NOTICE`）。
+`id` may contain only letters, digits, underscores and hyphens. Built-in pet: **Remielle** (remielle, see `NOTICE` for asset copyright).
 
 ---
 
-## 安装
+## Installation
 
-适用于 **DSH / DeepSeek Harness**（含 Fairy 等基于 DSH 的分支）的 web profile。
+For **DSH / DeepSeek Harness** (including Fairy and other DSH-based forks) web profile.
 
 ```powershell
-# 方式一：npm 注册表（推荐，可一键增量更新）
+# Option 1: npm registry (recommended, one-click incremental update)
 dsh plugin --profile web add dsh-pet-remielle
 
-# 方式二：GitHub 仓库（构建安装，无版本校验）
+# Option 2: GitHub repository (build install, no version check)
 dsh plugin --profile web add github:Gin-7/dsh-pet-remielle
 
-# 方式三：本地目录（开发调试，link 安装）
+# Option 3: local directory (development and debugging, link install)
 dsh plugin --profile web add D:\path\to\dsh-pet-remielle
 
-# 方式四：GitHub Release tgz
+# Option 4: GitHub Release tgz
 dsh plugin --profile web add "C:\Users\you\Downloads\dsh-pet-remielle-<version>.tgz"
 ```
 
-插件行 id：`dsh-pet-remielle`。卸载即复原，无残留。
+Plugin row id: `dsh-pet-remielle`. Uninstalling restores everything, no leftovers.
 
 ---
 
-## 更新
+## Updating
 
-插件内置「宠物管理 → 更新」页 + 右下角更新气泡：检查 GitHub 最新版本，发现新版可一键更新。
+The plugin ships a built-in "Pet Management → Update" page plus an update bubble in the bottom-right corner: it checks GitHub for the newest version and offers a one-click update as soon as a new release appears.
 
-| 安装形态 | 版本 | 更新方式 |
+| Install type | Version | Update method |
 |---|---|---|
-| 本地链接（link） | ≥ 0.3.0 | 一键 `git pull`（增量） |
-| npm 注册表（registry） | ≥ 0.3.0 | 一键 `pnpm update dsh-pet-remielle`（增量） |
-| 任意形态 | < 0.3.0 | **不支持自动更新**：0.3.0 起包名已变更，需彻底卸载旧版本后重新安装 |
+| Local link (link) | ≥ 0.3.0 | One-click `git pull` (incremental) |
+| npm registry (registry) | ≥ 0.3.0 | One-click `pnpm update dsh-pet-remielle` (incremental) |
+| Any type | < 0.3.0 | **Auto-update is not supported**: the package name changed at 0.3.0, so the old version must be fully uninstalled and then reinstalled |
 
-> 说明：0.3.0 之前存在**包名/行 id 变更**（0.2.0 之前为 `@dsh-external/dsh-client-ui-pet-remielle`，0.2.0–0.3.0 为 `dsh-pet-remielle`）。直接 `git pull`/`pnpm update` 无法跨过该变更，所以低于 0.3.0 **必须先卸载旧版再重装新版**（否则会出现 `loaded without registering … via __ModuleLoader__.load` 之类的加载报错）。命令如下：
+> Note: **package name / row id changed** before 0.3.0 (before 0.2.0 it was `@dsh-external/dsh-client-ui-pet-remielle`; from 0.2.0–0.3.0 it was `dsh-pet-remielle`). A plain `git pull`/`pnpm update` cannot cross that change, so anything below 0.3.0 **must be uninstalled before the new version is installed** (otherwise you hit load errors such as `loaded without registering … via __ModuleLoader__.load`). The commands are:
 
 ```powershell
-# 按实际安装的旧行 id 卸载（以下两条按需执行）
-dsh plugin --profile web remove @dsh-external/dsh-client-ui-pet-remielle   # 0.2.0 及之前
-dsh plugin --profile web remove dsh-pet-remielle                            # 0.2.0 之后
+# Uninstall using the old row id you actually installed (run whichever applies)
+dsh plugin --profile web remove @dsh-external/dsh-client-ui-pet-remielle   # 0.2.0 and earlier
+dsh plugin --profile web remove dsh-pet-remielle                            # after 0.2.0
 
-# 重新安装最新版（npm 或 GitHub 均可）
+# Reinstall the latest version (npm or GitHub both work)
 dsh plugin --profile web add dsh-pet-remielle
-# 或： dsh plugin --profile web add github:Gin-7/dsh-pet-remielle
+# or: dsh plugin --profile web add github:Gin-7/dsh-pet-remielle
 ```
 
-> 在「设置 → 宠物管理 → 更新」中，低于 0.3.0 的版本点击「一键更新」也会给出同样的卸载/重装指引，不会直接覆盖升级。
+> In "Settings → Pet Management → Update", clicking "Update now" on a version below 0.3.0 shows the same uninstall/reinstall guidance instead of overwriting the installation in place.
 
 ---
 
-## 桌面悬浮模式（可选）
+## Desktop Floating Mode (optional)
 
-`desktopMode` 默认关闭。开启后使用 Electron 运行时拉起**透明、置顶、无边框**的独立窗口显示宠物。
+`desktopMode` is off by default. Once enabled, the Electron runtime is used to launch a **transparent, always-on-top, frameless** standalone window that shows the pet.
 
-- 窗口支持拖动（位置自动记忆）、滚轮缩放、双击画画、右键菜单。
-- 状态/余额气泡与网页一致：堆叠会话卡、单圆点切换、提示文字与点击行为同网页；`✓` 仍执行「允许一次」。
-- 已知限制：「有待处理内容」的绿点信息来自网页侧边栏，仅在**网页端在线时**同步给桌面窗。网页关闭期间出现的新提醒可能不出现在桌面气泡里，下次打开网页即可看到；日常保持网页开启则不受影响。
-- 桌面窗按系统缩放自动补偿 UI 尺寸，与网页端视觉大小一致。
-- 双击画画：作品显示在**桌面右上角**的独立小窗，粗笔刷沿对角来回揭示，完成后「得意中→淡出」。
-- 右键菜单与网页端完全一致（见下方「使用」）。
-- 关闭/切换后自动回到页面内；随 DSH host 退出自动关闭（宿主退出后最多 1 秒内消失）。
-- 桌面窗的 Electron 数据目录固定在系统应用数据目录（Windows `%APPDATA%\dsh-pet-remielle`，macOS / Linux 落在各自的应用数据目录），**不放临时目录**——`%TEMP%` 会被系统磁盘清理连缓存一起删掉。同一时刻只允许一个桌面窗持有它：检测到另一个存活实例（宿主刚重启、旧窗口还没退完）时自动退避到带 pid 的兄弟目录，两者不共用同一份 Chromium 缓存。
+- The window supports dragging (position remembered automatically), wheel zoom, double-click drawing, and a right-click menu.
+- Status/balance bubbles match the web client: stacked session cards, single-dot switching, the same hint text and click behavior; `✓` still performs "Allow once".
+- Known limitation: the green-dot "needs attention" feed comes from the web sidebar and is only synced to the desktop window **while the web client is online**. New reminders that appear while the page is closed may not show up in the desktop bubble; they become visible the next time you open the page — keeping the page open during normal use means you are unaffected.
+- The desktop window compensates its UI size from the system scale factor, so it looks the same size as the web client.
+- Double-click drawing: the artwork shows in a **separate small window in the top-right corner of the desktop**, a thick brush reveals it back and forth along the diagonal, and it ends with "Pleased → fade-out".
+- The right-click menu is exactly the same as on the web client (see "Usage" below).
+- Closing it or switching back returns to the in-page pet automatically; it closes when the DSH host exits (it disappears within at most 1 second after the host is gone).
+- The desktop window's Electron data directory is pinned to the system application-data directory (Windows `%APPDATA%\dsh-pet-remielle`; macOS / Linux use their own application-data directories) and is **never placed in the temp directory** — `%TEMP%` gets wiped by system disk cleanup, cache included. Only one desktop window may hold it at a time: when another live instance is detected (the host just restarted and the old window has not finished exiting), it automatically backs off to a pid-suffixed sibling directory, so the two never share the same Chromium cache.
 
-**Electron 运行时来源（按顺序探测）**：`DSH_PET_ELECTRON` 环境变量 → `vendor/electron-<platform>-<arch>/`（本目录不进 Git，按当前系统自动下载对应平台包）→ 系统已安装的 Electron → 均无则仅页面内展示。
+**Electron runtime sources (probed in order)**: `DSH_PET_ELECTRON` environment variable → `vendor/electron-<platform>-<arch>/` (this directory is not in Git; the package matching the current system is downloaded automatically) → an already-installed system Electron → if none is found, in-page display only.
 
-> **首次运行**：若开启桌面悬浮模式但本机找不到 Electron 运行时，会**提示下载并安装**（需你确认，因 Electron 运行时约 100–220MB，Windows 最大）；下载失败则自动回落页面内展示，不会影响其他功能。也可手动把任一对应平台的 Electron 发行包解压到 `vendor/electron-<platform>-<arch>/`，或设置 `DSH_PET_ELECTRON` 指向现有 electron 可执行文件（Windows：`electron.exe`；macOS：`Electron.app/Contents/MacOS/Electron`；Linux：`electron`）。
+> **First run**: if desktop floating mode is enabled but no Electron runtime can be found on this machine, you are **prompted to download and install it** (it needs your confirmation, because the Electron runtime is about 100–220 MB, largest on Windows); if the download fails it falls back to in-page display automatically, and nothing else is affected. You can also manually extract any matching platform's Electron release into `vendor/electron-<platform>-<arch>/`, or set `DSH_PET_ELECTRON` to an existing electron executable (Windows: `electron.exe`; macOS: `Electron.app/Contents/MacOS/Electron`; Linux: `electron`).
 
-### 平台能力
+### Platform support
 
-| 平台 | 桌面悬浮窗 | 页面内桌宠 |
+| Platform | Desktop floating window | In-page pet |
 |---|---|---|
-| Windows x64 | ✓（Electron 透明置顶窗口） | 桌面模式下自动隐藏 |
-| macOS（arm64 / x64） | ✓（自动下载对应 darwin Electron） | 桌面模式下自动隐藏 |
-| Linux x64 | ✓（自动下载对应 linux Electron） | 桌面模式下自动隐藏 |
+| Windows x64 | ✓ (Electron transparent always-on-top window) | Hidden automatically in desktop mode |
+| macOS (arm64 / x64) | ✓ (automatically downloads the matching darwin Electron) | Hidden automatically in desktop mode |
+| Linux x64 | ✓ (automatically downloads the matching linux Electron) | Hidden automatically in desktop mode |
 
 ---
 
-## 使用
+## Usage
 
-- **单击桌宠**：切换随机贴纸心情。
-- **双击桌宠**：进入画画动画，绘制完成后在屏幕（右上角）弹出作品图，随后淡出。
-- **右键桌宠**：页面内与桌面窗**同一套菜单**（同宽同序，滑块左右对齐）—— 角色大小 / 透明度 / 左右镜像 / 锁定位置 / 暂停动画 / 显示气泡 / 画画 / 重置位置 / 桌面悬浮模式。「重置位置」一次清掉页面内与桌面窗两个位置；「暂停动画」冻在**当前这一帧**（不是起始帧），需要安全上下文（`127.0.0.1` / `localhost` / https）才精确，纯 http 局域网地址退回首帧；取消暂停会让 GIF 从第 0 帧重播（浏览器重设 `src` 的固有行为，`<img>` 无法定位到指定帧）。
-- **只放设置页**：启用 / 隐藏桌宠、宠物管理、响应子 Agent、用量模式与平台令牌、气泡子项与气泡缩放细项——低频，或者关掉之后连入口一起消失（所以不进右键）。
-- **两端主题同源**：菜单与气泡在页面内和桌面窗用**同一套色值**，也跟随同一个主题来源——网页端把宿主主题（`body[data-ds-dark-theme]`）上报给宿主，桌面窗据此着色；没有网页在线（或上报过期）时桌面窗回落**系统**深浅色，独立窗口跟系统仍是合理默认。条目、顺序、几何参数同样逐项一致（开关行的勾选符不改变行高），两端色值另有跨文件断言钉住。
-- **气泡翻页**：状态与用量都开启时，点左侧圆点或在气泡上滚轮，在状态卡与余额页之间切换；停在当前页，不会自动回落。
-- **滚轮（桌宠）**：调整角色大小。
-- 页面内宠物菜单也可反向拉起桌面窗。
-
----
-
-## 余额与今日已用
-
-状态与用量都开启时，点气泡左侧圆点或在气泡上滚轮即可查看 DeepSeek 账户余额与今日消耗（气泡显示「DeepSeek 余额 ¥X」+「今日已用 ¥X · 空闲/高峰时段」，时段用颜色标识：空闲绿、高峰红）。只开用量时气泡直接显示余额页。停在当前页，不会自动回到状态。
-
-- **余额**：来自官方接口 `api.deepseek.com/user/balance`（凭据 `DEEPSEEK_API_KEY`）。60 秒自动刷新；切到余额页时会拉一次；余额变化时有数字滚动动画；网络瞬时抖动自动沿用最近余额不报错。
-- **今日已用 · 小鲸鱼记账（默认，免令牌）**：每次观测余额后用余额差值自动累计，持久化到 `$DSH_HOME/.dshp-usage.json`，跨天自动归零归档。无需额外令牌，但属于估算——DSH 关闭期间的消耗会漏记。
-- **今日已用 · 实时·令牌（精确）**：配置平台会话令牌 `DEEPSEEK_PLATFORM_TOKEN` 后，直连平台费用接口（`platform.deepseek.com/api/v0/usage/by_api_key/cost`），直接取平台按小时统计的**真实金额**——无需本地定价表，DeepSeek 调价自动跟随：
-  - 气泡里同时显示当前所处时段（空闲 / 高峰）：工作日高峰为 9:00–12:00 与 14:00–18:00（北京时间），**周六周日与中国法定节假日全天空闲**（调休上班的周末同样按空闲计费，与官方口径一致）。节假日日历以内置表兜底、后台静默刷新公共日历数据（缓存到 `$DSH_HOME/.dshp-holidays-<年份>.json`），仅在首次/过期时发一次只含年份的请求
-  - 令牌缺失或失效时自动回落记账模式
-
-**切换用量模式**：设置 → 宠物管理 → 行为 →「用量模式」（小鲸鱼记账 / 实时·令牌）。这是配置项而非即时调优，只用设置页入口。
-
-> `DEEPSEEK_PLATFORM_TOKEN` 获取方式：登录 platform.deepseek.com → F12 开发者工具 → Network → 打开「用量」页面 → 复制 `api/v0/usage/...` 请求的 `Authorization` 请求头值 → 配置到 DSH 凭据服务。
+- **Single-click the pet**: cycle to a random sticker mood.
+- **Double-click the pet**: enter the drawing animation; when the drawing finishes the artwork pops up on screen (top-right corner) and then fades out.
+- **Right-click the pet**: the **same menu** in-page and in the desktop window (same width, same order, sliders aligned left and right) — character size / opacity / mirror horizontally / lock position / pause animation / show bubble / draw / reset position / desktop floating mode. "Reset position" clears both the in-page and the desktop-window position in one go; "Pause animation" freezes on the **currently displayed frame** (not the first frame) — exact on a secure context (`127.0.0.1` / `localhost` / https), while a plain-HTTP LAN address falls back to the first frame; un-pausing makes the GIF replay from frame 0 (inherent browser behavior when re-assigning `src`; `<img>` cannot seek to a given frame).
+- **Settings-page only**: enable / hide desktop pet, Pet Management, respond to sub-agents, usage mode and the platform token, bubble sub-items and the fine-grained bubble scaling options — either they are low-frequency, or turning them off would take their own entry point with them (so they are not in the right-click menu).
+- **Both clients share one theme source**: the menu and bubbles use **the same colors** in-page and in the desktop window, and both follow the same theme source — the web client reports the host theme (`body[data-ds-dark-theme]`) to the host, and the desktop window colours itself from that report; when no web client is online (or the report has expired) the desktop window falls back to the **system** light/dark setting, which stays a sensible default for a standalone window. Items, order and geometry parameters match item by item as well (the check mark on a toggle row never changes that row's height), and a cross-file assertion pins the colors on both clients.
+- **Bubble paging**: with both status and usage on, clicking the left dot or scrolling the wheel on the bubble switches between the status card and the balance page; it stays on the current page and never falls back automatically.
+- **Scroll wheel (on the pet)**: adjust the character size.
+- The in-page pet menu can also bring the desktop window back up.
 
 ---
 
-## 配置（设置 → 插件 → 蕾米埃尔桌宠）
+## Balance & Today's Usage
 
-| 字段 | 默认 | 说明 |
+With both status and usage on, clicking the left dot of the bubble or scrolling the wheel on the bubble shows your DeepSeek account balance and today's spending (the bubble shows "DeepSeek Balance ¥X" + "Today's usage ¥X · off-peak/peak hours", with the period color-coded: green for off-peak, red for peak). With usage only, the bubble goes straight to the balance page. It stays on the current page and never auto-returns to status.
+
+- **Balance**: from the official API `api.deepseek.com/user/balance` (credential `DEEPSEEK_API_KEY`). Auto-refreshes every 60 seconds; it is fetched once when you switch to the balance page; there is a rolling-number animation when the balance changes; transient network blips automatically keep the last known balance instead of erroring.
+- **Today's usage · ledger (default, token-free)**: after each balance observation the balance delta is accumulated automatically and persisted to `$DSH_HOME/.dshp-usage.json`, resetting and archiving automatically across day boundaries. No extra token is needed, but this is an estimate — spending incurred while DSH is closed is missed.
+- **Today's usage · real-time token (exact)**: after you configure the platform session token `DEEPSEEK_PLATFORM_TOKEN`, it connects straight to the platform cost API (`platform.deepseek.com/api/v0/usage/by_api_key/cost`) and reads the **real amount** the platform computes per hour — no local pricing table, so DeepSeek price changes are followed automatically:
+  - The bubble also shows the current period (off-peak / peak): on weekdays the peak hours are 9:00–12:00 and 14:00–18:00 (Beijing time), while **Saturdays, Sundays and Chinese statutory holidays are off-peak all day** (weekends that are make-up workdays are also billed as off-peak, matching the official rule). The holiday calendar falls back to a built-in table and silently refreshes public calendar data in the background (cached at `$DSH_HOME/.dshp-holidays-<year>.json`), issuing a year-only request on first use or after expiry
+  - Falls back to ledger mode automatically when the token is missing or invalid
+
+**Switching usage mode**: Settings → Pet Management → Behavior → "Usage mode" (ledger / real-time token). This is a configuration item rather than a live tweak, so it is reachable only through the settings page.
+
+> How to obtain `DEEPSEEK_PLATFORM_TOKEN`: sign in to platform.deepseek.com → F12 DevTools → Network → open the "Usage" page → copy the `Authorization` header value of the `api/v0/usage/...` request → configure it in the DSH credentials service.
+
+---
+
+## Configuration (Settings → Plugins → Remielle Desktop Pet)
+
+| Field | Default | Description |
 |---|---|---|
-| enabled | true | 启用桌宠（禁用立即隐藏，重新启用恢复） |
+| enabled | true | Enable the desktop pet (disabling hides it immediately, re-enabling restores it) |
 
-其余外观/行为项（角色大小、透明度、镜像、锁定、气泡、用量模式、桌面悬浮、暂停、隐藏……）统一放在「设置 → 宠物管理」，不再重复展示在插件配置卡片里；其中**即时可见且高频**的那几项同时出现在右键菜单（清单见「使用」一节）——两端菜单同骨架同名，改一端必须同步另一端。
+All other appearance/behavior options (character size, opacity, mirror, lock, bubbles, usage mode, desktop float, pause, hide, …) live in one place — "Settings → Pet Management" — and are no longer duplicated on the plugin configuration card; the **instantly visible and high-frequency** ones also appear in the right-click menu (see the list in "Usage") — both clients share one skeleton and one set of names, so changing one means changing the other.
 
-## 设置 → 宠物管理
+## Settings → Pet Management
 
-宠物注册表独立标签页，与**外观 / 行为 / 桌面悬浮 / 关于**并列为五个标签页。
+The pet registry is an independent tab, sitting alongside **Appearance / Pets / Behavior / Desktop / About** as the fifth tab.
 
-- 启用/禁用宠物、设为当前、改名、添加新宠物；目录缺失或缺图的宠物会在卡片上显示原因（启用开关同时禁用）。
-- 行为页：启用/锁定/暂停动画/隐藏/响应子 Agent/显示气泡/**用量模式**。
-- 「更新」：显示当前版本，检查更新、一键更新、查看升级说明。
-- 「反馈」：显示桌宠版本号，提交 Bug / 功能建议。
+- Enable/disable pets, set as current, rename, add a new pet; pets with a missing directory or missing images show the reason on the card (and the enable switch is disabled at the same time).
+- Behavior page: enable / lock / pause animation / hide / respond to sub-agents / show bubble / **usage mode**.
+- "Update": shows the current version, check for updates, one-click update, view the upgrade notes.
+- "Feedback": shows the pet version, submit bugs / feature requests.
 
 ---
 
-## 开发
+## Development
 
 ```powershell
 npm install
-node scripts/build-client.mjs    # 构建 lib/client.js（版本号从 package.json 注入）
-npm test                          # node --test 单测
-npm run check                     # 语法检查
+node scripts/build-client.mjs    # Build lib/client.js (version number injected from package.json)
+npm test                          # node --test unit tests
+npm run check                     # Syntax check
 ```
 
-### 目录结构
+### Directory Structure
 
 ```
 src/
-├── index.js          # 宿主：配置、事件接线、config/state/balance/pets/assets/desktop 端点、自更新路由
-├── balance.js        # 余额服务：余额拉取（重试/缓存/抖动容错）、今日已用双模式（记账/平台费用接口）
-├── holidays.js       # 节假日日历：峰谷时段判定（周末/法定节假日全天空闲），内置表 + 远程刷新 + 磁盘缓存
-├── self-update.js    # 版本检查 + 一键更新（GitHub 直连 + HTTP 代理回退；git pull / pnpm update）
-├── pet-reducer.js    # 纯状态机：会话事件 → state/pulse/task（可单测）
-├── protocol.js       # 类型化协议：PetState / PetMood / PetMessageKind
-├── pets.js           # 宠物注册表：目录发现/合并/校验（可单测）
-├── status-copy.js    # 蕾米埃尔风格状态文案（可整体替换）
-├── turn-watchdog.js  # 回合挂起看门狗：兜底「强杀会话后卡在分析阶段」
-├── desktop-window.js # 桌面模式：Electron 发现 + 窗口进程管理（可单测）
-├── electron-fetch.mjs # 按当前平台/架构下载并解压 Electron 运行时
-├── pet-window.cjs    # 桌面模式：Electron main（透明置顶窗口 + 屏幕右上角作品窗）
-├── pet-window-paths.cjs # 桌宠窗 userData 目录决策（与宿主 Electron 隔离）
-├── pet-preload.cjs   # 桌宠窗 preload：页面 ↔ 主进程桥（点击穿透、拖拽、命中矩形、菜单展开）
-├── pet-view.html     # 桌面模式：宠物窗口页面（GIF + 气泡 + SSE + 画画 + 余额气泡）
-├── balance-widget.js # 余额控制器（客户端）：取数/滚动动画，渲染进宠物自带气泡
-└── client.core.js    # 浏览器端：宠物 UI + 设置（构建时包装）
+├── index.js          # Host: config, event wiring, config/state/balance/pets/assets/desktop endpoints, self-update routes
+├── balance.js        # Balance service: balance fetch (retry/cache/blip tolerance), today's usage in two modes (ledger/platform cost API)
+├── holidays.js       # Holiday calendar: peak/off-peak period decision (weekends/statutory holidays off-peak all day), built-in table + remote refresh + disk cache
+├── self-update.js    # Version check + one-click update (direct GitHub + HTTP proxy fallback; git pull / pnpm update)
+├── pet-reducer.js    # Pure state machine: session events → state/pulse/task (unit-tested)
+├── protocol.js       # Typed protocol: PetState / PetMood / PetMessageKind
+├── pets.js           # Pet registry: directory discovery/merge/validation (unit-tested)
+├── status-copy.js    # Remielle-flavored status copy (replaceable as a whole)
+├── turn-watchdog.js  # Turn-hang watchdog: fallback for "session force-killed then stuck in the analyzing phase"
+├── desktop-window.js # Desktop mode: Electron discovery + window process management (unit-tested)
+├── electron-fetch.mjs # Download and extract the Electron runtime for the current platform/arch
+├── pet-window.cjs    # Desktop mode: Electron main (transparent always-on-top window + artwork window in the screen's top-right corner)
+├── pet-window-paths.cjs # Pet-window userData directory decision (isolated from the host's Electron)
+├── pet-preload.cjs   # Pet-window preload: page ↔ main-process bridge (click-through, drag, hit rects, menu expand)
+├── pet-view.html     # Desktop mode: pet window page (GIF + bubble + SSE + drawing + balance bubble)
+├── balance-widget.js # Balance controller (client): fetch/rolling animation, rendered into the pet's own bubble
+└── client.core.js    # Browser side: pet UI + settings (wrapped at build time)
 
-# 两端共用的 .cjs（包是 "type":"module"，宿主经 createRequire 取导出）。
-# 网页端由 scripts/build-client.mjs 拼在 client.core.js 之前，桌面端由宿主注册
-# 路由提供 <script src>——同一份实现，避免两端文案/几何漂移。
-├── session-order.cjs # 牌叠排序（审批 > 计划待审 > 等待回答 > 完成卡 > attention …）
-├── pet-tip.cjs       # 翻页圆点悬停文案、tip 视口钳位、气泡缩放口径
-├── gif-frame.cjs     # 取动图「此刻那一帧」（右键暂停用，canvas 只画首帧）
-├── bubble-title.cjs  # 气泡会话卡呈现层：标题节流、宽度测量、审批/待审/完成的文案与类名
-└── markdown.cjs      # release 说明的 markdown 渲染（先转义再变换，链接只放行 http(s)/mailto）
+# .cjs modules shared by both clients (the package is "type":"module"; the host
+# picks the exports up through createRequire). The web side concatenates them in
+# front of client.core.js via scripts/build-client.mjs; the desktop side serves them
+# from host-registered routes via <script src> — one implementation, so the copy and
+# geometry on the two clients can never drift apart.
+├── session-order.cjs # Deck ordering (approval > plan review > waiting for an answer > completion card > attention …)
+├── pet-tip.cjs       # Page-switch dot hover copy, tip viewport clamping, bubble zoom resolution
+├── gif-frame.cjs     # The GIF's "frame at this moment" (for right-click pause; the canvas only ever paints frame 0)
+├── bubble-title.cjs  # Bubble session-card presentation layer: title throttling, width measurement, copy and class names for the approval / plan review / done states
+└── markdown.cjs      # Markdown rendering for release notes (escape first, then transform; only http(s)/mailto links pass)
 
-lib/client.js         # 构建产物（版本号注入，安装即用）
-assets/pets/remielle/ # 蕾米埃尔素材（GIF + 作品图）
+lib/client.js         # Build artifact (version injected, ready to use after install)
+assets/pets/remielle/ # Remielle assets (GIFs + artwork)
 scripts/build-client.mjs
 test/                 # node --test
 ```
 
-> `.cjs` 后缀是为了让宿主 ESM 能 `createRequire` 拿到导出；对外 URL 仍是 `.js`
-> （浏览器 script 不认 `.cjs` 扩展语义）。新增两端共用模块时记得同时补进
-> `scripts/build-client.mjs` 的拼接列表**和**宿主的路由注册。用
-> `test/host-transport.test.js` 验证真实路由返回脚本，再由
-> `test/desktop-window-ui.test.js` 检查页面的 script src 与共享模块调用。
+> The `.cjs` suffix exists so that the host's ESM can pick the exports up through `createRequire`; the public URL is still `.js`
+> (a browser `<script>` does not honour `.cjs` extension semantics). When adding a module shared by both clients, remember to add it to **both**
+> the concatenation list in `scripts/build-client.mjs` **and** the host's route registration. Use
+> `test/host-transport.test.js` to verify that the real route returns the script, then have
+> `test/desktop-window-ui.test.js` check the page's script src and the shared-module calls.
 
-### 发布到 npm
+### Publishing to npm
 
 ```powershell
 npm login
-pnpm version patch    # 升版本
-pnpm pack --dry-run   # 检查发布内容（不含 node_modules / vendor）
+pnpm version patch    # Bump the version
+pnpm pack --dry-run   # Check what will be published (no node_modules / vendor)
 pnpm publish
 ```
 
-> 发布内容由 `files` 字段限定：`src/`、`lib/client.js`、`assets/`、`scripts/`、`test/`、`cordis.patch.yml`、`NOTICE`、`README.md`。`vendor/`（Electron 运行时）不发布，桌面模式按需下载。
+> Published content is limited by the `files` field: `src/`, `lib/client.js`, `assets/`, `scripts/`, `test/`, `cordis.patch.yml`, `NOTICE`, `README.md`. `vendor/` (the Electron runtime) is not published; desktop mode downloads it on demand.
 
 ---
 
-## 许可与素材版权
+## License & Asset Copyright
 
-代码以 MIT 许可分发；蕾米埃尔形象与 GIF/作品素材版权归米哈游（HoYoverse）所有，
-**禁止商业使用与再分发素材**。详见 `NOTICE`。
+The code is distributed under the MIT License; the Remielle character art and the GIF/artwork assets are copyrighted by miHoYo (HoYoverse),
+**and commercial use and redistribution of the assets is prohibited**. See `NOTICE` for details.

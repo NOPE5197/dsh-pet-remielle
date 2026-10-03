@@ -8,7 +8,7 @@
  * config and projects the registry view served to the settings page.
  *
  * Adding a pet never touches code: drop six GIFs into assets/pets/<id>/,
- * then flip it on in Settings → 宠物管理.
+ * then flip it on in Settings → Pet Management.
  */
 
 export const PET_MOODS = ['01', '02', '03', '04', '05', '06']
@@ -20,7 +20,7 @@ export const PET_MANIFEST = 'pet-manifest.json'
 /** Safe directory-name characters for a pet id (path component on disk). */
 export const PET_ID_RE = /^[A-Za-z0-9][A-Za-z0-9_-]*$/
 export const DEFAULT_PET_ID = 'remielle'
-export const DEFAULT_PET_NAME = '蕾米埃尔'
+export const DEFAULT_PET_NAME = 'Remielle'
 export const DEFAULT_PETS = Object.freeze([
   { id: DEFAULT_PET_ID, name: DEFAULT_PET_NAME, enabled: true },
 ])

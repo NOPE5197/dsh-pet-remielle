@@ -91,8 +91,8 @@ const idle = createMessage(PetMessageKind.STATE, {
   state: PetState.IDLE,
   mood: '06',
   phase: 'turn-end',
-  message: '任务完成咯，干得漂亮',
-  detail: 's1 · 本轮已完成',
+  message: 'Job finished, not bad~',
+  detail: 's1 · Turn complete',
 })
 
 test('local POST endpoints reject bad method and unusable session ids', async () => {
@@ -116,10 +116,10 @@ test('local POST endpoints reject bad method and unusable session ids', async ()
   for (const { name, handler, badBody } of cases) {
     const wrongMethod = responseRecorder()
     await handler(request('GET'), wrongMethod)
-    assert.equal(wrongMethod.status, 405, `${name} 应拒绝非 POST`)
+    assert.equal(wrongMethod.status, 405, `${name} should reject non-POST`)
     const missing = responseRecorder()
     await handler(request('POST', badBody), missing)
-    assert.equal(missing.status, 400, `${name} 应拒绝不可用的 sessionId`)
+    assert.equal(missing.status, 400, `${name} should reject an unusable sessionId`)
   }
 })
 
@@ -139,7 +139,8 @@ test('desktop session open notifies the browser client and reports delivery', as
   assert.equal(body.ok, true)
   assert.equal(body.delivered, true)
 
-  // 完成卡点击：completed 必须透传给网页端（决定是否顺带 ack）
+  // Completion-card click: `completed` must be passed through to the web client
+  // (it decides whether to acknowledge along with it)
   const completedRes = responseRecorder()
   await handler(request('POST', { sessionId: 's1c', approve: false, completed: true }), completedRes)
   assert.equal(notified[1].kind, 'session-action')
@@ -147,7 +148,8 @@ test('desktop session open notifies the browser client and reports delivery', as
   assert.equal(notified[1].approve, false)
   assert.equal(notified[1].completed, true)
 
-  // 没有网页客户端订阅时（notify 返回 0）：仍 200，但 delivered=false
+  // With no web client subscribed (notify returns 0): still 200, but
+  // delivered=false
   const silentHandler = createSessionOpenHandler({ notify: () => 0 })
   const silentRes = responseRecorder()
   await silentHandler(request('POST', { sessionId: 's2', approve: true }), silentRes)
@@ -167,7 +169,8 @@ test('undelivered session-action is stashed, delivered ones are not, latest wins
   await handler(request('POST', { sessionId: 's1', approve: false, completed: true }), res)
   assert.equal(res.status, 200)
   assert.equal(JSON.parse(res.body).delivered, false)
-  // 完整动作被暂存：SSE 订阅处 take() 后原样下发，网页端 applySnapshot 可直接消费
+  // The whole action is stashed: the SSE subscriber sends it unchanged after
+  // take(), so the web client's applySnapshot can consume it directly
   assert.deepEqual(store.take(), {
     protocolVersion: 1,
     kind: 'session-action',
@@ -175,10 +178,10 @@ test('undelivered session-action is stashed, delivered ones are not, latest wins
     approve: false,
     completed: true,
   })
-  // take 即清空：不重复重放
+  // take also clears: never replayed twice
   assert.equal(store.take(), null)
 
-  // 送达的动��不暂存；未送达的只保留最新一条
+  // Delivered actions are not stashed; only the newest undelivered action is kept
   const stashed = []
   const deliveredHandler = createSessionOpenHandler({ notify: () => 2, onUndelivered: (a) => stashed.push(a) })
   await deliveredHandler(request('POST', { sessionId: 's1' }), responseRecorder())
@@ -187,7 +190,9 @@ test('undelivered session-action is stashed, delivered ones are not, latest wins
   await handler(request('POST', { sessionId: 'new' }), responseRecorder())
   assert.equal(store.take().sessionId, 'new')
 
-  // 审批时效性强：不暂存，避免网页长时间离线后重连握手时自动批准过时请求
+  // Approvals are highly time-sensitive: they are not stashed, so a long offline
+  // spell of the web client followed by a reconnect handshake cannot auto-approve
+  // a stale request
   const approvalRes = responseRecorder()
   await handler(request('POST', { sessionId: 's1', approve: true }), approvalRes)
   assert.equal(approvalRes.status, 200)
@@ -195,14 +200,16 @@ test('undelivered session-action is stashed, delivered ones are not, latest wins
   assert.equal(store.take(), null)
 })
 
-// 桌宠窗口的 SSE 订阅不能算"网页在线"：否则它会把点击动作顶成已送达，
-// 网页端稍后就再也收不到重放。三处（订阅识别、hub 计数、端到端）合并断言。
+// The desktop pet window's SSE subscription must not count as "a web page is
+// online": otherwise it would push clicked actions to delivered and the web
+// client would never receive the replay afterwards. All three angles (subscription
+// identification, hub counting, end to end) are asserted together.
 test('pet-window subscribers never count as delivered web clients', async () => {
   assert.equal(streamClientOf('/plugins/dsh-pet-remielle/stream?client=pet'), 'pet')
-  // 网页端不带参数（或带其他值）照常重放
+  // The web client replays as usual without the parameter (or with another value)
   assert.equal(streamClientOf('/plugins/dsh-pet-remielle/stream'), 'web')
   assert.equal(streamClientOf('/plugins/dsh-pet-remielle/stream?client=web'), 'web')
-  // 异常 url 兜底为网页订阅者
+  // A malformed url falls back to a web subscriber
   assert.equal(streamClientOf(undefined), 'web')
 
   const hub = createStreamHub({ serve: () => ({ state: 'IDLE' }) })
@@ -211,12 +218,14 @@ test('pet-window subscribers never count as delivered web clients', async () => 
   hub.add(stubStreamRes())
   assert.equal(hub.size, 2)
   assert.equal(hub.notify({ kind: 'session-action', sessionId: 's1' }), 1)
-  // pet 窗口仍收到帧（其页面自行忽略带 kind 的帧），但不计数
+  // The pet window still receives the frame (its page ignores frames carrying a
+  // kind by itself), but it is not counted
   assert.ok(pet.writes.join('').includes('"sessionId":"s1"'))
   assert.equal(hub.notify({ kind: 'session-action' }), 1)
   hub.close()
 
-  // 端到端：只有桌宠窗口在线时 delivered=false，动作必须进暂存而不是被顶成已送达
+  // End to end: with only the pet window online, delivered=false and the action
+  // must go into the stash instead of being pushed to delivered
   const petOnly = createStreamHub({ serve: () => ({ state: 'IDLE' }) })
   const store = createPendingActionStore()
   const handler = createSessionOpenHandler({
@@ -231,8 +240,10 @@ test('pet-window subscribers never count as delivered web clients', async () => 
   petOnly.close()
 })
 
-// 桌面窗要靠宿主快照里的 currentSessionId 才知道「你在看哪个会话」。同一标签页的
-// 重复上报不广播；不同标签页独立保存，隐藏页清除不能抹掉可见页，过期状态也要失效。
+// The desktop window learns "which session are you looking at" from
+// currentSessionId in the host snapshot. Repeated reports from the same tab do not
+// broadcast; different tabs are stored independently, a hidden tab's clear cannot
+// wipe the visible tab, and stale entries must also expire.
 test('session current uplink tracks changes per browser tab and expires stale reports', async () => {
   let now = 1000
   let stored = ''
@@ -251,7 +262,7 @@ test('session current uplink tracks changes per browser tab and expires stale re
   now += 50
   await handler(request('POST', { sessionId: '', clientId: 'tab-a' }), responseRecorder())
   assert.equal(stored, '')
-  assert.equal(store.current(), 's2', '隐藏 tab 的清除不得抹掉可见 tab')
+  assert.equal(store.current(), 's2', "a hidden tab's clear must not wipe the visible tab")
   assert.deepEqual(seen, [
     ['s1', 'tab-a', true],
     ['s1', 'tab-a', false],
@@ -259,7 +270,7 @@ test('session current uplink tracks changes per browser tab and expires stale re
     ['', 'tab-a', true],
   ])
   now += 51
-  assert.equal(store.current(), '', '过期 tab 不得继续作为当前会话')
+  assert.equal(store.current(), '', 'an expired tab must not stay the current session')
 })
 
 test('bubble-title route serves the real shared script handler', async () => {
@@ -277,9 +288,12 @@ test('bubble-title route serves the real shared script handler', async () => {
   }
 })
 
-// 桌面悬浮窗是独立窗口，读不到宿主页面的 body[data-ds-dark-theme]——它的深色开关
-// 完全依赖网页端上报的 hostTheme。归一函数是这条链路唯一的入口：'Dark' 这类大小写
-// 笔误必须在这里报错，否则会安静地让两端配色不一致（不逐屏对比几乎看不出来）。
+// The desktop floating window is a separate window and cannot read the host
+// page's body[data-ds-dark-theme] — its dark-mode switch depends entirely on the
+// hostTheme reported by the web client. The normalization function is the only
+// entry point of this chain: a casing typo like 'Dark' must raise an error here,
+// otherwise it would quietly make the two clients' colors inconsistent (nearly
+// invisible without comparing screen by screen).
 test('host theme normalization accepts only dark/light and clears on empty', () => {
   assert.equal(normalizeHostTheme('dark'), 'dark')
   assert.equal(normalizeHostTheme('light'), 'light')
@@ -299,10 +313,10 @@ test('theme uplink stores, clears, reports real changes and rejects bad input', 
     assert.equal(res.status, 200)
   }
   assert.deepEqual(seen, [
-    ['dark', true],  // 首次上报：从「不知道」到 dark 也算一次变化
-    ['dark', false], // 心跳续期重复上报同一个值：不广播
+    ['dark', true],  // first report: going from "unknown" to dark is a change too
+    ['dark', false], // heartbeat renewal reporting the same value: no broadcast
     ['light', true],
-    ['', true],      // 清除（网页关闭）：桌面窗要立刻回落系统主题，属于真变化
+    ['', true],      // clear (page closed): the desktop window must fall back to the system theme at once, which is a real change
     ['', false],
   ])
 
@@ -335,8 +349,10 @@ test('theme uplink clears only the reporting browser tab', async () => {
   ])
 })
 
-// 网页端上报的 hostTheme / currentSessionId 都是"有才发"的字段：清空后必须字段
-// 缺失（而非空串），桌面窗据此回落系统主题 / 取消"正在查看哪个会话"。
+// hostTheme / currentSessionId reported by the web client are both "send only
+// when set" fields: after clearing, the field must be absent (rather than an empty
+// string), and the desktop window falls back to the system theme / drops "which
+// session is being viewed" accordingly.
 test('snapshot carries reported host theme and current session only when set', () => {
   const withReports = createStateSnapshot({
     getLatest: () => idle,
@@ -349,13 +365,13 @@ test('snapshot carries reported host theme and current session only when set', (
   assert.equal(withReports.hostTheme, 'dark')
   assert.equal(withReports.currentSessionId, 's1')
 
-  // 没有网页在线 / 上报过期：字段缺失
+  // No web client online / expired report: the fields are absent
   const unset = snapshotWith({ latest: idle })
   assert.equal(unset.hostTheme, undefined)
   assert.equal('hostTheme' in JSON.parse(JSON.stringify(unset)), false)
   assert.equal(unset.currentSessionId, undefined)
 
-  // 空串（清除态）同样回落为缺失
+  // An empty string (the cleared state) likewise falls back to absent
   const cleared = createStateSnapshot({
     getLatest: () => idle,
     getPulse: () => null,

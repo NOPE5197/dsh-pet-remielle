@@ -19,21 +19,25 @@ const path = require('node:path')
 const { execFileSync } = require('node:child_process')
 const petWindowPaths = require('./pet-window-paths.cjs')
 
-// Electron 在 macOS 上为透明窗（transparent:true）触发 'textured' 弃用警告。
-// 它无害（窗口正常工作），但会被子进程 stderr 转发进宿主终端造成噪音。
-// 关闭 DeprecationWarning 打印，保持终端干净；不影响任何功能。
+// Electron raises a 'textured' deprecation warning on macOS for transparent windows
+// (transparent:true). It is harmless (the window works fine) but the child process forwards it
+// on stderr into the host terminal, creating noise.
+// Disable DeprecationWarning printing to keep the terminal clean; it affects no functionality.
 process.noDeprecation = true
 
-// userData 目录（issue #21 追加建议）：从 %TEMP% 迁到稳定位置，并保证同一时刻
-// 只有一个 pet-window 进程在用它。
-//  ① 仍与宿主隔离：共享默认的 %APPDATA%/Electron 会锁住磁盘缓存、服务到陈旧
-//     响应（历史 bug：页面继续跑已经删掉的旧右键逻辑），所以必须是独立目录。
-//  ② 不再放 %TEMP%：系统磁盘清理会整目录删掉，Electron 缓存与渲染层
-//     localStorage 的位置兜底一起丢。
-//  ③ 稳定目录被别的存活实例占用时（宿主看门狗有延迟，快速重启宿主会重叠）
-//     退避到带自己 pid 的兄弟目录，避免两个进程共用一个 Chromium profile
-//     重新引出 ① 的陈旧缓存问题。
-// 判定与标记读写的细节见 pet-window-paths.cjs（纯逻辑，可单测）。
+// userData directory (follow-up to issue #21): move it off %TEMP% to a stable location, and
+// guarantee only one pet-window process uses it at a time.
+// ① Still isolated from the host: sharing the default %APPDATA%/Electron locks the disk cache
+//     and serves stale responses (historical bug: the pet page kept running the old
+//     right-click logic that had been deleted), so it must be a separate directory.
+// ② No longer under %TEMP%: system disk cleanup deletes the whole directory, taking the
+//     Electron cache and the renderer's localStorage position fallback with it.
+// ③ When the stable directory is held by another live instance (the host watchdog has a
+//     delay, so restarting the host quickly makes them overlap), back off to a sibling
+//     directory carrying our own pid, so two processes never share one Chromium profile and
+//     re-introduce the stale cache problem from ①.
+// See pet-window-paths.cjs for the detection and the lock read/write details (pure logic,
+// unit-testable).
 const appDataDir = app.getPath('appData')
 const userData = petWindowPaths.resolveUserDataDir({
   appDataDir,
@@ -49,40 +53,51 @@ if (userData.ownsLock) petWindowPaths.writeLock(userData.lockPath, process.pid)
 const url = process.env.DSH_PET_URL
 const parentPid = Number(process.env.DSH_PET_PARENT_PID || 0)
 
-// 上次关闭时的窗口位置（宿主 config.desktopX/desktopY 经 DSH_PET_POS_X/Y 传入）。
-// 与 bounds API 同空间（见下方 force-device-scale-factor 注释）：非 macOS 为物理
-// 像素，macOS 为逻辑点——保存（getPosition）与恢复（构造 x/y）走同一套 API，空间
-// 自洽。换显示器/改分辨率后可能落到屏幕外，建窗后按最近 workArea clamp。
+// Window position from the last close (the host's config.desktopX/desktopY arrive via
+// DSH_PET_POS_X/Y).
+// Same space as the bounds API (see the force-device-scale-factor comment below): physical
+// pixels on non-macOS, logical points on macOS — saving (getPosition) and restoring (the x/y
+// constructor) go through the same API, so the space is self-consistent. After changing
+// monitors/resolution it may land off-screen; after creating the window it is clamped to the
+// nearest workArea.
 const envPosX = Number(process.env.DSH_PET_POS_X)
 const envPosY = Number(process.env.DSH_PET_POS_Y)
 const persistedPos = Number.isFinite(envPosX) && Number.isFinite(envPosY)
   ? { x: Math.round(envPosX), y: Math.round(envPosY) }
   : null
 
-// 该 vendor 运行时在部分 100% 缩放的机器上会把 scaleFactor 误报为 1.1，
-// 导致 DIP↔物理换算有损：窗口随每次定位按 ~1.1 倍膨胀、拖动坐标漂移。
-// 真实屏幕缩放由系统决定；这里强制按 1 处理，使所有边界换算无损。
-// macOS 例外：Electron 在 darwin 上自动按 Retina 背板尺寸渲染，强制 dsf=1
-// 让内容以 1x 物理像素绘制、窗口尺寸按点计算产生错位，故仅在非
-// macOS 上强制（macOS 走原生逻辑点，见下方 scaleRoot 的 darwin 分支）。
+// That vendor runtime misreports scaleFactor as 1.1 on some 100%-scaled machines, making the
+// DIP↔physical conversion lossy: the window inflates by ~1.1x on every reposition and drag
+// coordinates drift.
+// The real screen scale is decided by the system; forcing it to 1 here keeps every bounds
+// conversion lossless.
+// macOS is the exception: Electron on darwin automatically renders at Retina backing-store
+// size, and forcing dsf=1 would draw content at 1x physical pixels while the window size is
+// computed in points, so it is only forced on non-macOS (macOS uses native logical points, see
+// the darwin branch of scaleRoot below).
 const isMac = process.platform === 'darwin'
 if (!isMac) {
   app.commandLine.appendSwitch('force-device-scale-factor', '1')
 }
 
-// 拖动定位时同时锁定的内容尺寸（与 BrowserWindow 创建参数一致），
-// 防止任何 bounds 往返误差累积改变窗口大小。
+// Content size locked at drag-position time (same as the BrowserWindow constructor
+// arguments), preventing any bounds round-trip error from accumulating into a changed window
+// size.
 const PET_CONTENT_W = 400
 const PET_CONTENT_H = 520
 
-// 从注册表读真实系统 DPI 缩放（96=100%），任何失败返回 null 由调用方回退。
-// 为什么不能信 screen API：上方 appendSwitch('force-device-scale-factor','1')
-// 生效后，screen.getPrimaryDisplay().scaleFactor 会被一起钉成 1（实测 200%
-// 屏上无此开关返回 2、加上开关变成 1），拿它算补偿恒为 1、完全失效——
-// 这正是高缩放屏上桌宠物理尺寸减半的根因。因此改读注册表的 AppliedDPI
-// （REG_DWORD，十六进制如 0xc0=192），它不受 force-dsf 开关影响。
+// Read the real system DPI scale from the registry (96=100%); any failure returns null and
+// the caller falls back.
+// Why the screen API cannot be trusted: once the
+// appendSwitch('force-device-scale-factor','1') above takes effect,
+// screen.getPrimaryDisplay().scaleFactor is pinned to 1 as well (measured: on a 200% screen
+// it returns 2 without the switch and 1 with it), so computing compensation from it is always
+// 1 and completely ineffective — that is exactly the root cause of the desktop pet halving its
+// physical size on high-scale screens. Hence read the registry's AppliedDPI (REG_DWORD,
+// hexadecimal such as 0xc0=192), which is unaffected by the force-dsf switch.
 function readSystemScaleFactor() {
-  // 注册表是 Windows 专属；其它平台直接回退，由调用方用 screen API 兜底。
+  // The registry is Windows-only; other platforms fall back immediately and the caller uses
+  // the screen API as the backstop.
   if (process.platform !== 'win32') return null
   try {
     const out = execFileSync(
@@ -104,16 +119,19 @@ if (!url) {
 }
 
 app.whenReady().then(() => {
-  // DSH Desktop 宿主给 WebServer 的所有路由（含本插件的 pet-view 与宿主 API）
-  // 套了 desktopBrowserAccess 准入：仅带渲染进程专属头的请求被认定为自身渲染
-  // 进程放行，其余视为普通浏览器——宿主未开启「浏览器访问」时一律 403
-  // "forbidden"（现象：桌面窗弹出后宠物消失、只剩 forbidden 字样）。本窗口是
-  // 独立 Electron 进程，宿主只给自家渲染进程注入，因此自行在 session 上给
-  // 同源请求补头；头名/值由宿主上下文经 env 传入，未提供时不装（普通 web 宿主）。
+  // The DSH Desktop host wraps every WebServer route (including this plugin's pet-view and
+  // the host API) in a desktopBrowserAccess admission check: only requests carrying the
+  // renderer-specific header are recognized as its own renderer process and let through, all
+  // others are treated as an ordinary browser — with the host's "Browser access" disabled
+  // everything gets 403 "forbidden" (symptom: after the desktop window pops up the pet
+  // disappears, leaving only the word forbidden). This window is an independent Electron
+  // process and the host only injects into its own renderer, so it adds the header itself on
+  // the session for same-origin requests; the header name/value arrive via env from the host
+  // context and are not installed when absent (plain web host).
   const rendererHeaderName = process.env.DSH_PET_RENDERER_HEADER_NAME
   const rendererHeaderValue = process.env.DSH_PET_RENDERER_HEADER_VALUE
   let carrierOrigin = ''
-  try { carrierOrigin = new URL(url).origin } catch { /* url 已在前置校验通过 */ }
+  try { carrierOrigin = new URL(url).origin } catch { /* url already passed the earlier check */ }
   if (rendererHeaderName && rendererHeaderValue && carrierOrigin) {
     session.defaultSession.webRequest.onBeforeSendHeaders({ urls: ['<all_urls>'] }, (details, callback) => {
       const requestHeaders = { ...details.requestHeaders }
@@ -122,28 +140,35 @@ app.whenReady().then(() => {
       }
       try {
         if (new URL(details.url).origin === carrierOrigin) requestHeaders[rendererHeaderName] = rendererHeaderValue
-      } catch { /* 非法 URL 不注入 */ }
+      } catch { /* do not inject for an invalid URL */ }
       callback({ requestHeaders })
     })
   }
-  // UI 缩放补偿：上方 force-device-scale-factor=1 把渲染钉在 100%，高缩放屏
-  // （真实缩放 R，如 200%）上网页端元素物理大小 = CSS×R，桌宠若不补偿就只有
-  // 一半。坐标系事实（Per-Monitor-V2 感知进程实测，200% 屏）：force-dsf=1 下
-  // BrowserWindow bounds、getCursorScreenPoint、display.workArea 全部同属
-  // 物理像素世界、1:1 直通——此前「bounds = 物理×R 的镜像世界」结论是
-  // DPI-unaware 测量进程被 Windows 按 ÷R 虚拟化读数造成的假象，已废弃。
-  // 因此 zoom 因子取 R 即可同时满足：窗口物理 = PET_CONTENT×R（网页端基线）、
-  // CSS 视口 = 物理/R = PET_CONTENT（布局不变）、元素物理 = CSS×R 与网页一致。
-  // R 不能取自 screen API：force-dsf=1 会把 scaleFactor 一起钉成 1（见
-  // readSystemScaleFactor 注释），故优先从注册表读真实值，读不到才回退主屏
-  // scaleFactor；对 R 按 [0.5,2] 夹取（上限防极端缩放下窗口超出常规显示器）。
-// 不采用「去掉 force-dsf 让 Electron 按
-  // 真实缩放渲染」的做法：非整数缩放下 DIP↔物理往返有截断误差，拖拽闭环会
-  // 复发持续漂移（见 drag-move 去重注释）；保持 dsf=1 的无损换算再补偿。
-  // 局限：多显示器缩放不同时以主屏为准，不做跨屏动态切换。
-  // macOS：Electron 以逻辑点渲染，且自动按 Retina 背板倍数缩放；
-  // 无需强制 1x，也不用缩放补偿，window/内容都按 400×520 逻辑点即可。
-  // 其它平台沿用 readSystemScaleFactor（Windows）→ screen.scaleFactor 回退。
+  // UI scale compensation: the force-device-scale-factor=1 above pins rendering to 100%; on a
+  // high-scale screen (real scale R, e.g. 200%) a web client element's physical size =
+  // CSS×R, so without compensation the desktop pet would only be half that size.
+// Coordinate-system facts (measured with a Per-Monitor-V2 aware process on a 200% screen):
+  // with force-dsf=1, BrowserWindow bounds, getCursorScreenPoint and display.workArea all
+  // belong to the same physical-pixel world and pass through 1:1 — the earlier "bounds = a
+  // mirror world of physical×R" conclusion was an artifact of a DPI-unaware measuring process
+  // whose readings Windows virtualized by ÷R, and is now discarded.
+// So taking the zoom factor as R satisfies all of: window physical = PET_CONTENT×R (the web
+  // client baseline), CSS viewport = physical/R = PET_CONTENT (layout unchanged), element
+// physical = CSS×R, same as the web.
+// R cannot come from the screen API: force-dsf=1 pins scaleFactor to 1 as well (see the
+  // readSystemScaleFactor comment), so the real value is read from the registry first and
+  // only falls back to the primary display's scaleFactor; R is clamped to [0.5,2] (the upper
+  // bound keeps the window from exceeding a normal display under extreme scaling).
+// Not adopting "drop force-dsf and let Electron render at the real scale": under
+  // non-integer scaling the DIP↔physical round trip has truncation error and the drag
+  // closed loop drifts continuously again (see the drag-move dedupe comment); keep dsf=1's
+  // lossless conversion and compensate on top.
+// Limitation: with different scales per monitor, the primary display wins; no dynamic
+// switching across displays.
+// macOS: Electron renders in logical points and automatically scales by the Retina backing
+  // store factor; no need to force 1x or to compensate, window and content are both
+// 400×520 logical points.
+// Other platforms follow readSystemScaleFactor (Windows) → screen.scaleFactor fallback.
   const scaleRoot = isMac ? 1 : Math.min(2, Math.max(0.5, readSystemScaleFactor() || screen.getPrimaryDisplay().scaleFactor || 1))
   const uiZoom = scaleRoot
   const petW = Math.round(PET_CONTENT_W * uiZoom)
@@ -151,8 +176,10 @@ app.whenReady().then(() => {
   const win = new BrowserWindow({
     width: petW,
     height: petH,
-    // 有持久化坐标就建窗即定位（Electron 对显式 x/y 不做 fit 钳制）；无坐标
-    // 保持原行为：自动 fit 进 workArea，高窗口被钳到底部（历史默认位置）。
+    // With persisted coordinates, position the window at creation (Electron does not apply fit
+    // clamping to an explicit x/y); without them keep the original behavior: auto-fit into
+    // the workArea, with a tall window clamped to the bottom (the historical default
+    // position).
     ...(persistedPos ? { x: persistedPos.x, y: persistedPos.y } : {}),
     transparent: true,
     frame: false,
@@ -171,13 +198,17 @@ app.whenReady().then(() => {
       preload: path.join(__dirname, 'pet-preload.cjs'),
     },
   })
-  // 实测：构造不带 x/y 时 Electron 会把窗口自动 fit 进 workArea；窗口高超过
-  // 工作区时会被钳制裁底。setBounds 显式坐标不受此钳制，故创建后立即按当前
-  // 位置补回完整尺寸。持久化坐标只做「可达性」钳制：对所有显示器 bounds 求
-  // 并集（虚拟桌面），保证窗口至少留 KEEP 边条在并集内。不能按单屏 workArea
-  // 整窗钳制——宠物图贴窗口底部（.pet 为 flex-end），把图拖到屏幕顶缘时窗口
-  // 上部必然伸出屏幕外（实测保存值 y=-381），整窗钳制会把窗口拽回 y=0，
-  // 表现为「位置没记忆」（issue #21 追加反馈：切换模式后位置丢失）。
+  // Measured: when constructed without x/y, Electron auto-fits the window into the workArea;
+  // when the window is taller than the work area it gets clamped to the bottom. Explicit
+  // coordinates via setBounds are exempt from this clamping, so the full size is restored
+  // immediately after creation at the current position. Persisted coordinates are only
+  // clamped for "reachability": take the union of all display bounds (the virtual desktop) and
+  // guarantee at least a KEEP margin of the window stays inside that union. Clamping the whole
+  // window to a single screen's workArea is wrong — the pet image hugs the window bottom
+  // (.pet is flex-end), so dragging the image to the top edge of the screen necessarily pushes
+  // the top of the window off-screen (a measured saved value was y=-381), and whole-window
+  // clamping would drag the window back to y=0, which shows up as "the position is not
+  // remembered" (follow-up to issue #21: the position is lost after switching modes).
   {
     let [px, py] = win.getPosition()
     if (persistedPos) {
@@ -189,15 +220,15 @@ app.whenReady().then(() => {
           u1x = Math.max(u1x, d.bounds.x + d.bounds.width)
           u1y = Math.max(u1y, d.bounds.y + d.bounds.height)
         }
-        const KEEP = 80 // 窗口至少留在虚拟桌面内的边条（物理像素），保证还能抓回来
+        const KEEP = 80 // margin of the window kept inside the virtual desktop (physical pixels), so it can still be grabbed
         const loX = u0x - petW + KEEP, hiX = u1x - KEEP
         const loY = u0y - petH + KEEP, hiY = u1y - KEEP
-        // 虚拟桌面极小（< 2*KEEP）时上下界可能倒挂，取中点退化成单点钳制
+        // When the virtual desktop is tiny (< 2*KEEP) the bounds may invert; take the midpoint and degrade to a single-point clamp
         const cx = loX > hiX ? (loX + hiX) / 2 : null
         const cy = loY > hiY ? (loY + hiY) / 2 : null
         px = cx !== null ? cx : Math.min(Math.max(px, loX), hiX)
         py = cy !== null ? cy : Math.min(Math.max(py, loY), hiY)
-      } catch { /* 屏幕枚举失败时保留原坐标 */ }
+      } catch { /* keep the original coordinates when display enumeration fails */ }
     }
     win.setBounds({ x: px, y: py, width: petW, height: petH })
   }
@@ -236,8 +267,9 @@ app.whenReady().then(() => {
     if (!hitRects || hitRects.length === 0) return false
     const pt = screen.getCursorScreenPoint()
     const b = win.getContentBounds()
-    // hitRects 由渲染层按 CSS px 上报；光标与 bounds 同为物理像素（force-dsf=1
-    // 直通），相减得窗口内物理偏移，除 uiZoom 回 CSS。
+    // hitRects are reported by the renderer in CSS px; the cursor and bounds are both
+    // physical pixels (force-dsf=1 passes through), so subtracting gives the physical offset
+    // inside the window — divide by uiZoom to get back to CSS.
     const x = (pt.x - b.x) / uiZoom
     const y = (pt.y - b.y) / uiZoom
     for (const r of hitRects) {
@@ -292,14 +324,17 @@ app.whenReady().then(() => {
     clientY = Number(clientY) || 0
     const [x, y] = win.getPosition()
     const physical = screen.getCursorScreenPoint()
-    // 抓取偏移按 CSS px 上报，乘 uiZoom 换算到物理像素世界（与 bounds 同系）
+    // The grab offset is reported in CSS px; multiply by uiZoom to convert into the physical
+    // pixel world (same system as bounds)
     const dipX = x + clientX * uiZoom
     const dipY = y + clientY * uiZoom
-    // force-dsf=1 下光标与 bounds 同为物理像素，physical/dipX 恒为 1；此自校准
-    // 仅作为跨 Electron/Windows 构建差异的兜底（见 drag-start 英文注释），
-    // 夹取 [0.25,4] 防异常测量值放大位移。
+    // Under force-dsf=1 the cursor and bounds are both physical pixels, so physical/dipX is
+    // always 1; this self-calibration is only a fallback for differences across
+    // Electron/Windows builds (see the English drag-start comment above), clamped to
+    // [0.25,4] so a bogus measurement cannot amplify displacement.
     const clamp = (v) => Math.min(4, Math.max(0.25, v))
-    // 比例按轴独立实测；抓取点太靠边（除数过小）时该轴退回 1。
+    // The ratio is measured independently per axis; when the grab point is too close to the
+    // edge (divisor too small) that axis falls back to 1.
     const sx = clientX > 4 && Math.abs(physical.x - dipX) > 1 ? clamp(physical.x / dipX) : 1
     const sy = clientY > 4 && Math.abs(physical.y - dipY) > 1 ? clamp(physical.y / dipY) : 1
     drag = { ox: clientX * uiZoom, oy: clientY * uiZoom, sx: sx, sy: sy, tx: NaN, ty: NaN }
@@ -309,25 +344,30 @@ app.whenReady().then(() => {
     const pt = screen.getCursorScreenPoint()
     const nx = Math.round(pt.x / drag.sx - drag.ox)
     const ny = Math.round(pt.y / drag.sy - drag.oy)
-    // 关键：以「目标是否变化」为去重依据，而不是 getPosition() 读回值。
-    // 非整数缩放（如 110%）下 DIP→物理→DIP 回读存在截断误差，读回值会
-    // 永远比目标差 1px；若据此重试，每次合成 mousemove 都会把窗口向右下
-    // 再推 1 物理像素，表现为按住不动时窗口持续漂移。
+    // Key: dedupe on "did the target change" rather than on the value read back by
+    // getPosition(). Under non-integer scaling (e.g. 110%) a DIP→physical→DIP read-back has
+    // truncation error, so the read-back value is always 1px off the target; retrying on that
+    // basis makes every synthesized mousemove push the window another 1 physical pixel to
+    // the bottom-right, which shows up as continuous drift while the button is held without
+    // moving.
     if (nx === drag.tx && ny === drag.ty) return
     drag.tx = nx
     drag.ty = ny
     win.setBounds({ x: nx, y: ny, width: petW, height: petH })
   })
-  // 位置持久化兜底（issue #21 "有时不记忆"）：回写原本只有渲染层 pointerup
-  // 一条路径，链路任何一环失手（moved 未置位、fetch 被静默吞掉、拖完立刻退出）
-  // 都会丢档。渲染层唯一必然发出的是 dragEnd IPC（endPetDrag 无条件调用），
-  // 所以主进程在 drag-end 处直接 PATCH 宿主 config 兜底。/plugins 端点只校验
-  // loopback 来源无需令牌（渲染层相对 fetch 不带 query 也能过即为证明）。
-  // 与渲染层写同一坐标，幂等；坐标没变时跳过。
+  // Position persistence fallback (issue #21 "sometimes it does not remember"): writing back
+  // originally had only one path, the renderer's pointerup, so losing any link in the chain
+  // (moved not set, fetch silently swallowed, quitting right after the drag) loses the save.
+  // The only IPC the renderer always sends is dragEnd (endPetDrag calls it unconditionally),
+  // so the main process PATCHes the host config directly at drag-end as a fallback. The
+  // /plugins endpoint only validates the loopback origin and needs no token (proof: the
+  // renderer's relative fetch passes without a query either).
+  // It writes the same coordinates as the renderer, so it is idempotent; skipped when the
+  // coordinates are unchanged.
   const hostOrigin = new URL(url).origin
   let lastSavedPos = null
-  // PATCH 宿主 config（/plugins 端点只校验 loopback 来源，无需令牌）。2s 超时
-  // 避免网络异常时把调用方挂住。
+  // PATCH the host config (the /plugins endpoint only validates the loopback origin, no token
+  // needed). The 2s timeout avoids hanging the caller on a network error.
   function patchHostConfig(body, label) {
     const ctrl = new AbortController()
     const timer = setTimeout(() => ctrl.abort(), 2000)
@@ -352,10 +392,12 @@ app.whenReady().then(() => {
   }
 
   ipcMain.on('drag-end', () => {
-    // 渲染层 endPetDrag 对「任何左键抬起」都发 drag-end：点菜单项、点气泡也算。
-    // 而菜单贴右扩窗会左移窗口 x（宠物视觉不动），此时 getPosition 读到的是
-    // 扩窗坐标——无条件回写就会把扩窗 x 存进档，表现为「y 记忆（菜单不改
-    // y）而 x 丢失」。只有真实拖动（drag 非空）才允许存档。
+    // The renderer's endPetDrag sends drag-end for "any left-button release": clicking a menu
+    // item or a bubble counts too. And when the menu grows the window at the right edge it
+    // shifts x left (the pet does not visually move), so what getPosition reads then is the
+    // grown coordinate — an unconditional write-back would store that grown x, which shows up
+    // as "y is remembered (the menu does not change y) but x is lost". Only a real drag (drag
+    // non-null) is allowed to write the save.
     const wasDragging = drag !== null
     drag = null
     if (wasDragging) persistPosition()
@@ -367,19 +409,23 @@ app.whenReady().then(() => {
     return { x: Math.round(x), y: Math.round(y) }
   })
 
-  // 渲染层询问「本窗是否已按宿主持久化坐标定位」：有则渲染层跳过 localStorage
-  // 的 moveTo 兜底（旧存档会与宿主坐标打架），无则沿用旧行为。
+  // The renderer asks "was this window already positioned by the host's persisted
+  // coordinates": if so the renderer skips its localStorage moveTo fallback (the stale save
+  // would fight the host coordinates), otherwise the old behavior is kept.
   ipcMain.handle('get-initial-position', () => persistedPos)
 
-  // 右键菜单：渲染层按工作区用与网页相同的右→左→上公式选出落点，再把窗口
-  // 扩到菜单+光晕的包围盒。优先只增加宽/高（原点不动）：.pet 顶左锚 400×520，
-  // 向右/下长时内容屏幕位置不变。贴右翻左才会减小 x，返回 dx/dy 让渲染层把
-  // .pet 推回。force-dsf=1 下 bounds/workArea 同为物理像素，CSS 先乘 uiZoom。
+  // Right-click menu: the renderer picks the landing spot inside the work area with the same
+  // right→left→up formula as the web client, then grows the window to the bounding box of
+  // menu + glow. Prefer only increasing width/height (origin unchanged): .pet anchors
+  // 400×520 at the top-left, so growing right/down leaves the content's on-screen position
+  // unchanged. Only flipping to the left at the right edge decreases x, and dx/dy are
+  // returned so the renderer can push .pet back. Under force-dsf=1 bounds and workArea are
+  // both physical pixels, so CSS values are first multiplied by uiZoom.
   let menuBase = null
   ipcMain.handle('get-work-area', () => {
     const b = win.getContentBounds()
     let wa = null
-    try { wa = screen.getDisplayMatching(b).workArea } catch { /* 无工作区时退回当前窗 */ }
+    try { wa = screen.getDisplayMatching(b).workArea } catch { /* fall back to the current window when there is no work area */ }
     if (!wa) {
       return { left: 0, top: 0, right: b.width / uiZoom, bottom: b.height / uiZoom }
     }
@@ -397,8 +443,9 @@ app.whenReady().then(() => {
       `void (window.__rm2ApplyPetShift && window.__rm2ApplyPetShift(${dxN},${dyN}))`,
     ).catch(() => {})
   }
-  // resizable:false 时 Windows 常忽略 setBounds 的 x，只从当前左上角改宽；
-  // 透明窗 opacity:0 时 DWM 还可能在揭回时把位置弹回隐藏前的 bounds。
+  // With resizable:false Windows often ignores setBounds' x and only changes the width from the
+  // current top-left; and for a transparent window at opacity:0, DWM may still snap the
+  // position back to the pre-hide bounds when it is revealed again.
   const applyBounds = (bounds) => {
     if (win.isDestroyed()) return
     let locked = false
@@ -406,20 +453,21 @@ app.whenReady().then(() => {
     try {
       win.setContentBounds(bounds)
     } finally {
-      try { if (locked) win.setResizable(false) } catch { /* 还原失败也不要抛 */ }
+      try { if (locked) win.setResizable(false) } catch { /* do not throw even if the restore fails */ }
     }
   }
   const withHiddenMove = async (originMoves, run) => {
     if (originMoves && !win.isDestroyed()) {
-      try { win.setOpacity(0) } catch { /* 透明窗仍可 setOpacity */ }
+      try { win.setOpacity(0) } catch { /* setOpacity still works on a transparent window */ }
     }
     try {
       await run()
-      // 只等一帧让 DWM 吃下 bounds+shift；揭回后再写 bounds 会在可见时挪窗=闪动。
+      // Wait only one frame so DWM absorbs bounds+shift; writing bounds after revealing moves
+      // the window while visible = flicker.
       if (originMoves) await new Promise((r) => setTimeout(r, 16))
     } finally {
       if (originMoves && !win.isDestroyed()) {
-        try { win.setOpacity(1) } catch { /* 必须揭回，否则宠物会消失 */ }
+        try { win.setOpacity(1) } catch { /* must reveal, otherwise the pet disappears */ }
       }
     }
   }
@@ -434,7 +482,7 @@ app.whenReady().then(() => {
     let rgt = Math.max(b.width, right)
     let bot = Math.max(b.height, bottom)
     let wa = null
-    try { wa = screen.getDisplayMatching(b).workArea } catch { /* 查询异常时按请求值扩 */ }
+    try { wa = screen.getDisplayMatching(b).workArea } catch { /* grow by the requested values when the query throws */ }
     if (wa) {
       const waL = wa.x - b.x
       const waT = wa.y - b.y
@@ -476,21 +524,26 @@ app.whenReady().then(() => {
     const b = win.getContentBounds()
     const originMoved = base.x !== b.x || base.y !== b.y
     await withHiddenMove(originMoved, async () => {
-      // 先搬回窗口（此时页面 shift 仍在，视觉位置正确），再清 shift。
-      // 若先清 shift 而 x 没写回去，宠物会停在扩窗后的左侧。
+      // Move the window back first (the page shift is still in place, so the visual position is
+      // correct), then clear the shift. Clearing the shift first without writing x back would
+      // leave the pet on the left side of the grown window.
       applyBounds(base)
       if (originMoved) await applyShiftInPage(0, 0)
       applyBounds(base)
     })
   })
 
-  // 右键菜单「重置位置」：把窗口搬回默认落点，并清空宿主持久化坐标。
-  // 默认落点复刻「建窗不带 x/y」时 Electron 的行为（按主屏工作区居中，窗口比
-  // 工作区还高时贴底），与构造后那次补尺寸的结果一致。
-  // 必须先清 menuBase 与页面 shift：点这一项时菜单还开着，随后的 closeMenu →
-  // menu-restore 会按 menuBase 把窗口搬回重置前的位置，重置就白做了。
-  // posX/posY 一并清空——页面内宠物与桌面窗是两个独立的位置存储，只清一个会让
-  // 「重置位置」在切换模式后失效。
+  // Right-click menu "Reset position": move the window back to the default landing spot and
+  // clear the host's persisted coordinates.
+  // The default landing spot replicates Electron's behavior when "creating the window without
+  // x/y" (centered on the primary display's work area, pinned to the bottom when the window is
+  // taller than the work area), matching the result of the size restore after construction.
+  // menuBase and the page shift must be cleared first: the menu is still open when this item is
+  // clicked, so the following closeMenu → menu-restore would move the window back to the
+  // pre-reset position and the reset would be wasted.
+  // posX/posY are cleared as well — the in-page pet and the desktop window are two independent
+  // position stores, and clearing only one makes "Reset position" stop working after switching
+  // modes.
   ipcMain.handle('reset-position', async () => {
     if (!win || win.isDestroyed()) return null
     menuBase = null
@@ -502,7 +555,7 @@ app.whenReady().then(() => {
       y = petH > wa.height
         ? Math.round(wa.y + wa.height - petH)
         : Math.round(wa.y + (wa.height - petH) / 2)
-    } catch { /* 屏幕枚举失败就退 (0,0)：至少动一下，别让用户以为没生效 */ }
+    } catch { /* fall back to (0,0) when display enumeration fails: move at least once, do not let the user think nothing happened */ }
     const next = { x, y, width: petW, height: petH }
     const b = win.getContentBounds()
     const originMoves = b.x !== x || b.y !== y
@@ -511,14 +564,16 @@ app.whenReady().then(() => {
       if (originMoves) await applyShiftInPage(0, 0)
       applyBounds(next)
     })
-    lastSavedPos = null // 允许下一次真实拖动重新存档
+    lastSavedPos = null // allow the next real drag to save again
     void patchHostConfig({ posX: null, posY: null, desktopX: null, desktopY: null }, 'reset position')
     return next
   })
 
-  // 无网页客户端在线时点击气泡卡：渲染层只发信号，URL 由宿主经 DSH_WEB_URL
-  // 传入（桌面模式要求 DSH 0.1.2-alpha.1+ 的带进程 token 根路径）。
-  // 用 href 而不是 origin：token 在 query 上，303 换 cookie 时也会丢掉其它参数。
+  // Clicking a bubble card with no web client online: the renderer only signals, and the URL
+  // arrives from the host via DSH_WEB_URL (desktop mode requires the token-bearing root path of
+  // DSH 0.1.2-alpha.1+).
+  // Using href rather than origin: the token is on the query, and a 303 cookie swap would drop
+  // the other parameters too.
   ipcMain.handle('open-dsh-page', () => {
     try {
       const target = new URL(process.env.DSH_WEB_URL || new URL('/', url).origin)
@@ -545,8 +600,9 @@ app.whenReady().then(() => {
     artWin.webContents.executeJavaScript(`document.getElementById('art').src = ${JSON.stringify(dataUrl)}`).catch(() => {})
   }
   ipcMain.on('artwork-open', (_event, w, h) => {
-    // 渲染层按 CSS px 上报尺寸；force-dsf=1 下 artWin 内容 1 CSS px = 1 物理
-    // 像素，不乘 uiZoom 会在高缩放屏上比网页端显示偏小，与主窗口同倍放大。
+    // The renderer reports the size in CSS px; under force-dsf=1, 1 CSS px of artWin content = 1
+    // physical pixel, so not multiplying by uiZoom would make it display smaller than the web
+    // client on high-scale screens; scale it by the same factor as the main window.
     w = Math.max(60, Math.round((Number(w) || 220) * uiZoom))
     h = Math.max(60, Math.round((Number(h) || 220) * uiZoom))
     if (artWin && !artWin.isDestroyed()) { artWin.setBounds({ width: w, height: h }); return }
@@ -554,7 +610,8 @@ app.whenReady().then(() => {
     artWin = new BrowserWindow({
       width: w,
       height: h,
-      // workArea 与窗口定位同为物理像素，直接算停靠点（右上留 24 物理间隙）。
+      // workArea and window positioning are both physical pixels, so compute the docking spot
+      // directly (leaving a 24px physical gap at the top right).
       x: Math.round(work.x + work.width - 24 - w),
       y: Math.round(work.y + 24),
       transparent: true,
@@ -581,9 +638,11 @@ app.whenReady().then(() => {
     artWin.on('closed', () => { artWin = null; artPending = null; artLoaded = false })
   })
   ipcMain.on('artwork-set', (_event, dataUrl) => artSet(String(dataUrl)))
-  // 连续双击重开：清空画面并复位淡出状态。若在上一幅的得意停留/淡出过程中
-  // 重开，img 的 src 还挂着旧图、opacity 可能已被置 0——不清理的话，新一轮
-  // 加载完成前会闪现旧画，甚至新画推帧后也因 opacity=0 而不可见。
+  // Reopening with repeated double-clicks: clear the picture and reset the fade state. If the
+  // reopen happens during the previous picture's pleased hold/fade, the img src still holds
+  // the old image and opacity may already be 0 — without the cleanup the old painting flashes
+  // before the new round finishes loading, and the new painting can even stay invisible after
+  // pushing frames because opacity=0.
   const ART_BLANK = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'
   ipcMain.on('artwork-clear', () => {
     artPending = null
@@ -609,26 +668,29 @@ app.whenReady().then(() => {
   win.setVisibleOnAllWorkspaces?.(true, { visibleOnFullScreen: true })
 
   win.loadURL(url)
-  // zoom 必须在导航完成后设置：loadURL 之前调用的 setZoomFactor 会在导航提交
-  // 时被重置回 1（活体实测：内容未放大、图案只剩一半大，且拖动自校准随之测出
-  // ~0.54 的错误系数，位移被放大近一倍、一拖就冲出屏幕），故挂在导航完成后。
+  // zoom must be set after navigation completes: a setZoomFactor call before loadURL is reset
+  // to 1 when the navigation commits (measured live: the content is not zoomed, the artwork is
+  // only half its size, and the drag self-calibration then measures a wrong factor of ~0.54,
+  // amplifying displacement almost twofold so a single drag flies off screen), hence it is
+  // attached after navigation completes.
   win.webContents.on('did-finish-load', () => {
     win.webContents.setZoomFactor(uiZoom)
-    // 阴影 CSS 按 1/zoom 反缩放，使透明窗光晕物理尺寸不随 DPI 膨胀。
+    // Shadow CSS inversely scales by 1/zoom so the transparent window's glow does not inflate
+    // with DPI.
     win.webContents.insertCSS(`:root{--rm2-ui-zoom:${uiZoom};}`).catch(() => {})
   })
   win.webContents.on('did-fail-load', (_e, code, desc, furl) => console.log('[pet] FAIL:', code, desc, furl))
   win.webContents.on('console-message', (_e, level, msg) => console.log('[pet-console]', level, String(msg).slice(0, 160)))
   win.once('ready-to-show', () => {
     win.show()
-    // show 时 Electron 可能对超出 workArea 的窗口再做一次 fit 钳制；显示稳定
-    // 后重申完整尺寸兜底。
+    // On show, Electron may apply one more fit clamp to a window outside the work area; restate
+    // the full size once the display has settled, as a fallback.
     setTimeout(() => {
       if (win.isDestroyed()) return
       try {
         const [lx, ly] = win.getPosition()
         win.setBounds({ x: lx, y: ly, width: petW, height: petH })
-      } catch { /* 窗口销毁竞态，忽略 */ }
+      } catch { /* window destruction race, ignore */ }
     }, 250)
   })
   win.on('closed', () => {
@@ -637,19 +699,23 @@ app.whenReady().then(() => {
   })
 
   // Watchdog: when the DSH host process goes away, take the pet with it.
-  // kill(pid, 0) 的语义：ESRCH=进程不存在；EPERM=存在但无权发信号——后者
-  // 恰恰说明父进程还活着，绝不能当成「宿主已退」误杀窗口（DSH Desktop 的
-  // NodeService 宿主下曾表现为桌面窗弹出数秒内自动消失）。
-  // 轮询从 3000ms 收到 1000ms：宿主退出后窗口最多滞留 1 秒（用户感知是「一起
-  // 退出」），同时把「宿主已重启、旧窗口还没走」的 userData 重叠窗口一起缩短
-  // ——重叠越短，退避目录这条兜底路径越少被触发。
+  // Semantics of kill(pid, 0): ESRCH = the process does not exist; EPERM = it exists but the
+  // signal may not be sent — the latter is precisely proof that the parent is still alive and
+  // must never be treated as "the host has exited" and kill the window (under the DSH Desktop
+  // NodeService host this showed up as the desktop window disappearing seconds after popping
+  // up).
+  // Polling tightened from 3000ms to 1000ms: after the host exits the window lingers at most 1
+  // second (users perceive this as "they exit together"), and it also shortens the userData
+  // overlap window when "the host restarted but the old window has not left yet" — the shorter
+  // the overlap, the less often the fallback-directory path is triggered.
   if (parentPid) {
     const hostGone = () => {
       try {
         process.kill(parentPid, 0)
         return false
       } catch (error) {
-        // 只有 ESRCH 才算宿主没了；EPERM 等其余错误一律视为仍在，继续观察。
+        // Only ESRCH means the host is gone; every other error such as EPERM counts as still running,
+        // keep watching.
         return Boolean(error && error.code === 'ESRCH')
       }
     }
@@ -667,9 +733,11 @@ app.on('window-all-closed', () => {
   app.quit()
 })
 
-// 释放 userData 占用标记，让下一次启动能复用稳定目录。只在自己是标记主人时
-// 才删（releaseLock 内部判 pid）：退避实例根本没写过标记，进程被强杀时残留的
-// 标记也会因为 pid 已死而在下次启动被判为空闲，无需在此额外兜底。
+// Release the userData occupancy marker so the next launch can reuse the stable directory.
+// Delete it only when we are the marker's owner (releaseLock checks the pid internally): a
+// fallback instance never wrote a marker in the first place, and a marker left behind by a
+// force-killed process is judged idle on the next launch because its pid is dead, so no extra
+// fallback is needed here.
 app.on('will-quit', () => {
   if (userData.ownsLock) petWindowPaths.releaseLock(userData.lockPath, process.pid)
 })

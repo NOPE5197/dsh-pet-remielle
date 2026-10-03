@@ -91,8 +91,8 @@ const idle = createMessage(PetMessageKind.STATE, {
   state: PetState.IDLE,
   mood: '06',
   phase: 'turn-end',
-  message: '任务完成咯，干得漂亮',
-  detail: 's1 · 本轮已完成',
+  message: 'Job finished, not bad~',
+  detail: 's1 · Turn complete',
 })
 
 test('snapshot fills session title from getSessionTitle when missing', () => {
@@ -104,18 +104,19 @@ test('snapshot fills session title from getSessionTitle when missing', () => {
       sessionId: 's1',
       state: PetState.THINKING,
       mood: '04',
-      message: '让我想想最优解是什么',
+      message: 'Let me think about the optimal solution',
       project: 'dsh-pet-remielle',
       updatedAt: 1,
     }],
-    getSessionTitle: (sessionId) => sessionId === 's1' ? '审查提示框颜色与溢出问题' : undefined,
+    getSessionTitle: (sessionId) => sessionId === 's1' ? 'Review tooltip colors and overflow issues' : undefined,
   })()
-  assert.equal(snapshot.sessions[0].title, '审查提示框颜色与溢出问题')
+  assert.equal(snapshot.sessions[0].title, 'Review tooltip colors and overflow issues')
   assert.equal(snapshot.sessions[0].project, 'dsh-pet-remielle')
 })
 
-// 快照顶层字段：配置、桌面窗状态、宠物 id、网页订阅数都在这里定型。
-// 缺省值与覆盖值放在一起断言，避免分散在十条一行的用例里。
+// The snapshot's top-level fields: config, desktop window state, pet id and the
+// web subscriber count are all settled here. Defaults and overrides are
+// asserted together so they do not spread across a dozen one-line cases.
 test('snapshot top-level fields follow config, desktop state and pet registry', () => {
   const full = snapshotWith({
     latest: idle,
@@ -127,7 +128,8 @@ test('snapshot top-level fields follow config, desktop state and pet registry', 
   assert.equal(full.opacity, 0.8)
   assert.equal(full.locked, true)
   assert.equal(full.bubble, true)
-  // 客户端统一读 showBubble 别名；顶层 updatedAt 供 idle 占位卡使用
+  // Clients uniformly read the showBubble alias; the top-level updatedAt feeds
+  // the idle placeholder card
   assert.equal(full.showBubble, true)
   assert.equal(typeof full.updatedAt, 'number')
   assert.equal(full.desktopActive, false)
@@ -143,7 +145,7 @@ test('snapshot top-level fields follow config, desktop state and pet registry', 
   assert.equal(bare.petId, DEFAULT_PET_ID)
 
   assert.equal(snapshotWith({ latest: idle, config: { enabled: false } }).enabled, false)
-  // 桌面窗窗口开着时宿主才报 desktopActive
+  // The host only reports desktopActive while the desktop window is open
   assert.equal(createStateSnapshot({
     getLatest: () => idle,
     getPulse: () => null,
@@ -151,7 +153,8 @@ test('snapshot top-level fields follow config, desktop state and pet registry', 
     getPetId: () => undefined,
     getDesktopActive: () => true,
   })().desktopActive, true)
-  // 没有网页在线 / 上报过期时，缺省必须是 0 而不是 undefined
+  // With no web client online / an expired report the default must be 0, not
+  // undefined
   assert.equal(createStateSnapshot({
     getLatest: () => idle,
     getPulse: () => null,
@@ -162,11 +165,13 @@ test('snapshot top-level fields follow config, desktop state and pet registry', 
   assert.equal(bare.webClients, 0)
 })
 
-// 快照和 /config 都不得回传令牌明文；设置页只拿到 configured 标志，更新仍由 PATCH 写入。
+// Neither the snapshot nor /config may echo the token in plain text; the
+// settings page only gets the configured flag, and updates are still written
+// through PATCH.
 test('state snapshot never carries platformToken', () => {
   const snapshot = snapshotWith({ latest: idle, config: { platformToken: 'sk-must-not-leak' }, petId: DEFAULT_PET_ID })
   assert.equal('platformToken' in snapshot, false)
-  assert.equal(JSON.stringify(snapshot).includes('sk-must-not-leak'), false, '快照序列化后不得出现令牌明文')
+  assert.equal(JSON.stringify(snapshot).includes('sk-must-not-leak'), false, 'the serialized snapshot must not contain the token in plain text')
   assert.equal(publicConfig({ platformToken: 'sk-ok' }).platformToken, 'sk-ok')
   assert.equal(clientConfig({ platformToken: 'sk-ok' }).platformTokenConfigured, true)
   assert.equal('platformToken' in clientConfig({ platformToken: 'sk-ok' }), false)
@@ -210,10 +215,10 @@ test('snapshot exposes showBubble=false and pulse expiry', () => {
       ttlMs: 5000,
       resumeState: PetState.IDLE,
       resumeMood: '06',
-      resumeMessage: '待命中',
+      resumeMessage: 'On standby',
       resumeDetail: 'DSH',
-      message: '成功',
-      detail: 's1 · 本轮已完成',
+      message: 'Success',
+      detail: 's1 · Turn complete',
     }),
     until: Date.now() + 5000,
   }
@@ -226,7 +231,7 @@ test('snapshot exposes showBubble=false and pulse expiry', () => {
   assert.ok(snapshot.pulseUntil > Date.now())
   const settled = snapshotWith({ latest: idle, config: { showBubble: false } })
   assert.equal(settled.pulseUntil, 0)
-  // 宠物 id 由注册表给，不随 pulse 覆盖而漂移
+  // The pet id comes from the registry and must not drift with the pulse overlay
   assert.equal(snapshotWith({
     latest: idle,
     pulse: createMessage(PetMessageKind.PULSE, { sessionId: 's1', state: PetState.SUCCESS, mood: '03', ttlMs: 5000 }),
@@ -242,8 +247,8 @@ test('active pulse overlay wins over durable state', () => {
     ttlMs: 5000,
     resumeState: PetState.IDLE,
     resumeMood: '06',
-    message: '这次任务搞定啦~',
-    detail: 's1 · 本轮已完成',
+    message: 'That task is done~',
+    detail: 's1 · Turn complete',
   })
   const snapshot = snapshotWith({
     latest: idle,
@@ -251,12 +256,12 @@ test('active pulse overlay wins over durable state', () => {
   })
   assert.equal(snapshot.state, PetState.SUCCESS)
   assert.equal(snapshot.mood, '03')
-  assert.equal(snapshot.message, '这次任务搞定啦~')
+  assert.equal(snapshot.message, 'That task is done~')
   assert.equal(snapshot.sessions.length, 1)
   assert.equal(snapshot.sessions[0].sessionId, 's1')
   assert.equal(snapshot.sessions[0].state, PetState.SUCCESS)
 
-  // 过期后回落到持久状态，且不留下任何会话卡
+  // After it expires it falls back to the durable state, leaving no session card
   const expired = snapshotWith({ latest: idle, pulse: { ...pulse, until: Date.now() - 1000 } })
   assert.equal(expired.state, PetState.IDLE)
   assert.equal(expired.mood, '06')
@@ -264,13 +269,16 @@ test('active pulse overlay wins over durable state', () => {
 })
 
 /**
- * 快照的 sessions[] 顺序。
+ * The ordering of the snapshot's sessions[].
  *
- * 分工：优先级表本身只由 test/session-order.test.js 定义一处（它直接测
- * compareSessions）。这里是**接线护栏**——输入刻意排成 think/cur/plan/ask/appr，
- * 断言 createStateSnapshot 真的按共享比较器排过（完全不排序就会挂），而不是把
- * 规则再表述一遍。另外它还独占地覆盖一件 session-order 单测碰不到的事：
- * 完成通知进入 sessions[] 时会被加 `completion:` 前缀，且排在 attention 之前。
+ * Division of labour: the priority table itself is defined in exactly one place,
+ * test/session-order.test.js (which tests compareSessions directly). This is a
+ * **wiring guard** — the inputs are deliberately laid out as think/cur/plan/ask/
+ * appr, and the assertions prove createStateSnapshot really did sort with the
+ * shared comparator (no sorting at all would fail), rather than restating the
+ * rules. It also exclusively covers one thing the session-order unit test cannot
+ * reach: a completion notification gets a `completion:` prefix when it enters
+ * sessions[] and ranks ahead of attention.
  */
 test('snapshot sessions follow session-order: approval > plan review > ask > completion > current > recency', () => {
   const snapshot = snapshotWith({
@@ -285,8 +293,8 @@ test('snapshot sessions follow session-order: approval > plan review > ask > com
     ],
     getCompletions: () => [{
       sessionId: 'done',
-      message: '任务已完成',
-      detail: '任务已完成',
+      message: 'Task complete',
+      detail: 'Task complete',
       phase: 'turn-end',
       updatedAt: 8,
     }],
@@ -302,16 +310,18 @@ test('snapshot sessions follow session-order: approval > plan review > ask > com
 })
 
 test('snapshot sessions[] mirrors tracked sessions, pulses and completions', () => {
-  // 缺省：没有 states 时是空数组（客户端按数组存在与否区分"无会话"和"空快照"）
+  // Default: with no states it is an empty array (the client distinguishes
+  // "no session" from "empty snapshot" by whether the array exists)
   assert.deepEqual(snapshotWith({ latest: idle }).sessions, [])
 
   const states = [
-    { sessionId: 's2', state: PetState.WAITING, mood: '05', phase: 'ask', message: '等你回答', detail: 's2 · 等待回答', attention: true, updatedAt: 4 },
-    { sessionId: 's1', state: PetState.THINKING, mood: '01', phase: 'streaming', message: '正在输出', detail: 's1 · 输出阶段', attention: false, updatedAt: 3 },
+    { sessionId: 's2', state: PetState.WAITING, mood: '05', phase: 'ask', message: 'Waiting for your answer', detail: 's2 · Waiting for answer', attention: true, updatedAt: 4 },
+    { sessionId: 's1', state: PetState.THINKING, mood: '01', phase: 'streaming', message: 'Responding', detail: 's1 · Responding', attention: false, updatedAt: 3 },
   ]
   assert.deepEqual(snapshotWith({ latest: idle, getStates: () => states }).sessions, states)
 
-  // 活跃 pulse 覆盖同名会话的 entry，其他会话不动
+  // An active pulse overrides the entry of the session with the same id; other
+  // sessions are left alone
   const pulse = createMessage(PetMessageKind.PULSE, {
     sessionId: 's1',
     state: PetState.SUCCESS,
@@ -319,23 +329,24 @@ test('snapshot sessions[] mirrors tracked sessions, pulses and completions', () 
     ttlMs: 5000,
     resumeState: PetState.IDLE,
     resumeMood: '06',
-    message: '这次任务搞定啦~',
-    detail: 's1 · 本轮已完成',
+    message: 'That task is done~',
+    detail: 's1 · Turn complete',
   })
   const flashed = snapshotWith({ latest: idle, getStates: () => states, pulse: { ...pulse, until: Date.now() + 4000 } }).sessions
   assert.equal(flashed.length, 2)
   const own = flashed.find((entry) => entry.sessionId === 's1')
   assert.equal(own.state, PetState.SUCCESS)
   assert.equal(own.mood, '03')
-  assert.equal(own.message, '这次任务搞定啦~')
+  assert.equal(own.message, 'That task is done~')
   assert.ok(own.pulseUntil > Date.now())
   assert.equal(flashed.find((entry) => entry.sessionId === 's2').state, PetState.WAITING)
 
-  // 队列里的完成卡合成 completion:<id> 条目，pulse 过期后仍然留着
+  // A completion card in the queue synthesizes a completion:<id> entry that
+  // survives after the pulse expires
   const completion = {
     sessionId: 'done-1',
-    message: '任务已完成',
-    detail: '任务已完成',
+    message: 'Task complete',
+    detail: 'Task complete',
     phase: 'turn-end',
     updatedAt: 12,
   }
@@ -347,10 +358,11 @@ test('snapshot sessions[] mirrors tracked sessions, pulses and completions', () 
   assert.equal(done[0].completed, true)
   assert.equal(done[0].completionNotification, true)
 
-  // 会话自己又活过来了：同一会话的完成提醒必须撤掉，不能重复占一张卡
+  // The session came back to life: the completion reminder for that same
+  // session must be withdrawn and must not occupy a second card
   const live = snapshotWith({
     latest: idle,
-    getStates: () => [{ sessionId: 'done-1', state: PetState.THINKING, mood: '04', message: '后续状态', detail: '分析阶段', updatedAt: 20 }],
+    getStates: () => [{ sessionId: 'done-1', state: PetState.THINKING, mood: '04', message: 'Follow-up status', detail: 'Analyzing', updatedAt: 20 }],
     getCompletions: () => [completion],
   }).sessions
   assert.equal(live.length, 1)
@@ -360,15 +372,19 @@ test('snapshot sessions[] mirrors tracked sessions, pulses and completions', () 
 })
 
 /**
- * 宿主合成的两类卡——活跃脉冲覆盖出来的条目、队列里的完成提醒——必须显式带齐
- * approval / ask / planReview 三个 flag。
+ * The two kinds of card the host synthesizes — the entry produced by an active
+ * pulse overlay and the completion reminder in the queue — must explicitly carry
+ * all three flags: approval / ask / planReview.
  *
- * 此前只给前两个。**行为上没有任何差别**：消费端一律判 `=== true`
- * （session-order.cjs 的 planReviewOf 就是 `entry.planReview === true`），缺字段与
- * `false` 严格等价，排序结果逐位相同。所以这条不是回归护栏，是**形状护栏**：
- * 三处合成点（脉冲覆盖、完成提醒、快照兜底）必须显式写出同一组 flag，这样后来人
- * 新增一种卡时能照着抄，而不必去猜"漏了会不会坏"——答案是不会坏，但不一致的
- * 字段集合会让读代码的人怀疑自己看漏了什么。
+ * Previously only the first two were set. **There is no behavioural difference
+ * at all**: every consumer checks `=== true` (planReviewOf in session-order.cjs
+ * is exactly `entry.planReview === true`), a missing field is strictly equivalent
+ * to `false`, and the sort result is identical digit for digit. So this is not a
+ * regression guard but a **shape guard**: the three synthesis points (pulse
+ * override, completion reminder, snapshot fallback) must all spell out the same
+ * set of flags, so whoever adds a new kind of card later can copy them instead
+ * of having to guess "will it break if I leave one out" — the answer is no, but
+ * an inconsistent field set makes the reader doubt they missed something.
  */
 test('synthesized cards carry the full flag set', () => {
   const pulseCard = snapshotWith({
@@ -377,15 +393,15 @@ test('synthesized cards carry the full flag set', () => {
   }).sessions
   const completionCard = snapshotWith({
     latest: idle,
-    getCompletions: () => [{ sessionId: 'done-1', message: '任务已完成', detail: '任务已完成', phase: 'turn-end', updatedAt: 12 }],
+    getCompletions: () => [{ sessionId: 'done-1', message: 'Task complete', detail: 'Task complete', phase: 'turn-end', updatedAt: 12 }],
   }).sessions
   assert.equal(pulseCard.length, 1)
   assert.equal(completionCard.length, 1)
   for (const entry of [...pulseCard, ...completionCard]) {
     const where = entry.sessionId
-    assert.equal(entry.approval, false, `${where} 应显式带 approval:false`)
-    assert.equal(entry.ask, false, `${where} 应显式带 ask:false`)
-    assert.equal(entry.planReview, false, `${where} 应显式带 planReview:false`)
+    assert.equal(entry.approval, false, `${where} should explicitly carry approval:false`)
+    assert.equal(entry.ask, false, `${where} should explicitly carry ask:false`)
+    assert.equal(entry.planReview, false, `${where} should explicitly carry planReview:false`)
   }
 })
 
@@ -406,7 +422,7 @@ test('completion acknowledgement deletes one reminder, broadcasts, and forwards 
     { sessionId: 'done-1', opts: { clearPulse: false } },
     { sessionId: 'done-1', opts: { clearPulse: true } },
   ])
-  assert.equal(broadcasts, 2, '每次确认都要广播一次')
+  assert.equal(broadcasts, 2, 'every acknowledgement must broadcast once')
 })
 
 test('applyCompletionAck only clears a SUCCESS pulse when clearPulse is set', () => {
@@ -416,10 +432,12 @@ test('applyCompletionAck only clears a SUCCESS pulse when clearPulse is set', ()
   assert.equal(queue.has('done-1'), false)
   queue.set('done-1', { sessionId: 'done-1' })
   assert.equal(applyCompletionAck(queue, success, 'done-1', { clearPulse: true }), null)
-  // ERROR 卡是"还没处理完"，确认完成提醒不得把它一起抹掉
+  // An ERROR card means "not finished yet"; acknowledging a completion reminder
+  // must not wipe it away as well
   queue.set('done-1', { sessionId: 'done-1' })
   const errorPulse = { sessionId: 'done-1', state: PetState.ERROR }
   assert.equal(applyCompletionAck(queue, errorPulse, 'done-1', { clearPulse: true }), errorPulse)
 })
 
-// 三个本地 POST 端点同一条契约：非法方法回 405、缺 id 回 400，且都不得触发副作用。
+// The three local POST endpoints share one contract: a bad method answers 405, a
+// missing id answers 400, and none of them may trigger a side effect.
